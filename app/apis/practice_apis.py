@@ -1,9 +1,9 @@
 import re
-from fastapi import FastAPI, Path
+from fastapi import APIRouter, Path
 from pydantic import BaseModel, Field, field_validator
 
-# 1. FastAPI 앱 객체 생성
-app = FastAPI()
+# 1. FastAPI 라우터
+router = APIRouter()
 
 # 2. 초기 데이터셋
 user_list = [
@@ -114,13 +114,13 @@ class UserUpdateRequest(BaseModel):
 # --- API Endpoints ---
 
 # 1. 모든 회원의 정보를 목록으로 조회하는 API
-@app.get("/practice_api/users", response_model=list[UserResponse])
+@router.get("/practice_api/users", response_model=list[UserResponse])
 def get_all_users():
   return user_list
 
 
 # 2. 특정 회원의 정보를 조회하는 API (얼리 리턴 적용)
-@app.get("/practice_api/users/{user_id}", response_model=UserResponse)
+@router.get("/practice_api/users/{user_id}", response_model=UserResponse)
 def get_user_by_id(user_id: int = Path(..., description="조회할 회원의 ID")):
   for user in user_list:
     if user["id"] == user_id:
@@ -131,7 +131,7 @@ def get_user_by_id(user_id: int = Path(..., description="조회할 회원의 ID"
 
 
 # 3. 회원의 정보를 추가하는 API
-@app.post("/practice_api/users", response_model=UserResponse, status_code=201)
+@router.post("/practice_api/users", response_model=UserResponse, status_code=201)
 def create_user(user_data: UserCreateRequest):
   new_id = max([user["id"] for user in user_list], default=0) + 1
 
@@ -147,7 +147,7 @@ def create_user(user_data: UserCreateRequest):
 
 
 # 4. 회원의 정보를 수정하는 API (얼리 리턴 적용)
-@app.patch("/practice_api/users/{user_id}", response_model=UserResponse)
+@router.patch("/practice_api/users/{user_id}", response_model=UserResponse)
 def update_user(user_id: int, update_data: UserUpdateRequest):
   # [얼리 리턴 1] 입력 데이터가 아예 없는 경우 최상단에서 컷
   update_dict = update_data.model_dump(exclude_unset=True)
@@ -178,7 +178,7 @@ def update_user(user_id: int, update_data: UserUpdateRequest):
 
 
 # 5. 특정 회원의 정보를 삭제하는 API (얼리 리턴 적용)
-@app.delete("/practice_api/users/{user_id}")
+@router.delete("/practice_api/users/{user_id}")
 def delete_user(user_id: int):
   for index, user in enumerate(user_list):
     if user["id"] == user_id:
