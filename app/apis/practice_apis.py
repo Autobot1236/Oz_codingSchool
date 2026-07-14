@@ -161,7 +161,30 @@ async def get_user(user_id: int) -> dict:
 
 # 역할 C 영역
 # 역할 C 담당자가 회원 등록 API를 작성합니다.
+@router.post(
+    "/users",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="회원 등록",
+)
+async def create_user(user_data: UserCreate) -> dict:
+    if email_exists(user_data.email):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="이미 사용 중인 이메일입니다.",
+        )
 
+    new_user = {
+        "id": max(
+            (user["id"] for user in user_list),
+            default=0,
+        )
+        + 1,
+        **user_data.model_dump(),
+    }
+
+    user_list.append(new_user)
+    return new_user
 
 # 역할 D 영역
 # 역할 D 담당자가 회원 수정 API를 작성합니다.
