@@ -167,28 +167,56 @@ async def get_user(user_id: int) -> dict:
     status_code=status.HTTP_201_CREATED,
     summary="회원 등록",
 )
-async def create_user(user_data: UserCreate) -> dict:
-    if email_exists(user_data.email):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="이미 사용 중인 이메일입니다.",
-        )
-
-    new_user = {
-        "id": max(
-            (user["id"] for user in user_list),
-            default=0,
-        )
-        + 1,
-        **user_data.model_dump(),
-    }
 
     user_list.append(new_user)
     return new_user
 
 # 역할 D 영역
 # 역할 D 담당자가 회원 수정 API를 작성합니다.
+@router.patch(
+    "/users/{user_id}",
+    response_model=UserResponse,
+    summary="회원 정보 수정",
+)
+async def update_user(
+    user_id: int,
+    payload: UserUpdate,
+) -> dict:
+    update_data = payload.model_dump(exclude_none=True)
 
+    if not update_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="수정할 항목을 하나 이상 입력해야 합니다.",
+        )
+
+    user_index = get_user_index(user_id)
+    current_user = user_list[user_index]
+
+    new_email = update_data.get("email")
+    if new_email is not None and email_exists(
+        str(new_email),
+        excluded_user_id=user_id,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="이미 등록된 이메일입니다.",
+        )
+
+    current_user.update(update_data)
+    return current_user
 
 # 역할 E 영역
 # 역할 E 담당자가 회원 삭제 API를 작성합니다.
+@router.delete(
+    "/users/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="회원 삭제",
+)
+async def delete_user(user_id: int) -> Response:
+    user_index = get_user_index(user_id)
+    user_list.pop(user_index)
+
+    return Response(
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
