@@ -6,10 +6,12 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
+
 # 프로젝트 루트를 sys.path에 추가하여 app 모듈을 임포트할 수 있게 함
-import os
 import sys
-sys.path.append(os.getcwd())
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.db.databases import Base, DATABASE_URL
 
@@ -20,14 +22,13 @@ from app import models
 config = context.config
 
 # Alembic 설정 파일의 sqlalchemy.url을 우리 앱의 DATABASE_URL로 덮어씁니다.
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# model's MetaData object
 target_metadata = Base.metadata
 
 
