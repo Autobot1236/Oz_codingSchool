@@ -1,35 +1,41 @@
-from sqlalchemy import Boolean, Enum, String
+from __future__ import annotations
+
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+from sqlalchemy import Boolean, DateTime, Enum, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db.databases import Base
-from app.core.db.models import TimestampMixin
-from app.models.enums import DepartmentEnum, GenderEnum, RoleEnum
+from app.models.enums import Department, Gender, Role
+
+if TYPE_CHECKING:
+    from app.models.xray_image import XrayImage
 
 
-class User(TimestampMixin, Base):
-    """직원 계정 (의료진 / 개발팀 / 연구진). 환자(Patient)와는 별도의 로그인 계정 테이블."""
-
+class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    email: Mapped[str] = mapped_column(
-        String(255), unique=True, index=True, nullable=False
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(20), nullable=False)
-    phone_number: Mapped[str] = mapped_column(
-        String(20), unique=True, index=True, nullable=False
+    phone_number: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    gender: Mapped[Gender] = mapped_column(Enum(Gender), nullable=False)
+    department: Mapped[Department] = mapped_column(Enum(Department), nullable=False)
+    role: Mapped[Role] = mapped_column(
+        Enum(Role), default=Role.PENDING, server_default=Role.PENDING.name, nullable=False
     )
-    gender: Mapped[GenderEnum] = mapped_column(Enum(GenderEnum), nullable=False)
-    department: Mapped[DepartmentEnum] = mapped_column(
-        Enum(DepartmentEnum), nullable=False
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=text("1"), nullable=False
     )
-    role: Mapped[RoleEnum] = mapped_column(
-        Enum(RoleEnum), nullable=False, default=RoleEnum.PENDING
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False
     )
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, onupdate=datetime.utcnow, nullable=True
+    )
 
-    # 이 직원이 업로드한 엑스레이 이미지들 (1:N)
-    uploaded_xray_images: Mapped[list["XrayImage"]] = relationship(
-        back_populates="uploader"
+    xray_images: Mapped[list[XrayImage]] = relationship(
+        back_populates="uploader", passive_deletes=True
     )

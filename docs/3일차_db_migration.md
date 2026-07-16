@@ -1,112 +1,120 @@
-# 3일차 DB 마이그레이션 기록
+# 3일차 MySQL ORM 및 마이그레이션
 
-프로젝트: 폐렴 환자 관리 백오피스(AI Health) · 참고 ERD: [dbdiagram.io](https://dbdiagram.io/d/ai_health_assignment-69d5f55f808962968443c041) · [Notion 원문](https://app.notion.com/p/DB-ef2638e5d63683c1b0ac8128d272f8a3)
+## 1. MySQL 선택 이유
 
-## 1. 사용한 데이터베이스
+과제 운영 환경과 동일한 MySQL 8.0을 사용해 ENUM, `ON DELETE`, 자동 증가 등 DB 종속 동작을 실제 환경에서 검증했다.
 
-**MySQL 8.0** (드라이버: `asyncmy`, 포트 `3306`)
+## 2. Docker Compose
 
-- `app/core/config.py`의 `Settings`와 `docker-compose.yml`에 이미 MySQL 8.0 + `asyncmy` 비동기 드라이버로 구성되어 있어, 별도 논의 없이 템플릿에 맞춰 MySQL을 사용했습니다.
-- `app/core/db/databases.py`가 `mysql+asyncmy://` 접두사로 `DATABASE_URL`을 만들고, `AsyncSession` 기반 비동기 세션(`AsyncSessionLocal`, `async_get_db`)을 제공합니다.
-- 로컬 개발은 `docker-compose.yml`의 `mysql` 서비스(포트는 `.env`의 `DB_PORT`, 기본 `3306`)를 사용합니다.
-
-## 2. ERD 요약
-
-5개 테이블, 모두 1:N 관계로 연결됩니다.
-
-| 관계 | 부모(1) | 자식(N) | 의미 |
-|---|---|---|---|
-| ① | `patients` | `medical_records` | 환자 1명이 진료기록을 여러 건 가짐 |
-| ② | `medical_records` | `xray_images` | 진료기록 1건에 엑스레이 여러 장 |
-| ③ | `medical_records` | `ai_analysis_results` | 진료기록 1건에 AI 분석결과 여러 건 |
-| ④ | `users` | `xray_images` | 직원 1명이 엑스레이를 여러 장 업로드 |
-
-Enum 3종: `gender {M, F}`, `role {PENDING, STAFF, ADMIN}`, `department {MEDICAL, DEV, RESEARCH}`
-
-## 3. 작성한 모델 목록
-
-| 파일 | 클래스 | 비고 |
-|---|---|---|
-| `app/models/enums.py` | `GenderEnum`, `RoleEnum`, `DepartmentEnum` | ERD의 Enum 3종 |
-| `app/models/user.py` | `User` | 직원 계정. `email`·`phone_number` unique |
-| `app/models/patient.py` | `Patient` | 환자. `medical_records`와 1:N (cascade delete) |
-| `app/models/medical_record.py` | `MedicalRecord` | `chart_number` unique, `patient_id` FK(CASCADE) |
-| `app/models/xray_image.py` | `XrayImage` | `record_id`·`uploader_id` FK 2개. `updated_at` 없음(ERD 기준) |
-| `app/models/ai_analysis_result.py` | `AiAnalysisResult` | `record_id` FK(CASCADE) |
-| `app/models/__init__.py` | - | Alembic이 `from app import models`로 인식하도록 전체 import 등록 |
-
-모든 모델은 `app/core/db/databases.py`의 `Base`(`declarative_base()`)를 상속하고, `created_at`/`updated_at`이 필요한 테이블은 `app/core/db/models.py`의 `TimestampMixin`을 사용했습니다. (팀 공통 `UUIDMixin`은 사용하지 않음 — ERD가 `id integer`/`bigint`로 명시되어 있어 UUID 대신 자동증가 정수 PK를 그대로 따랐습니다.)
-
-## 4. 마이그레이션 실행 로그
+- `mysql`: `mysql:8.0`, named volume `mysql_volume`, healthcheck, 3306 포트
+- `adminer`: `adminer:5`, MySQL healthy 후 시작, 8080 포트
+- 기존 `fastapi`, `static_volume`, `media_volume`은 유지했다.
 
 ```bash
-# 0. MySQL 컨테이너 실행 (아직 안 켜져 있다면)
-docker compose up -d
+docker compose config
+docker compose up -d mysql adminer
+docker compose ps
+```
 
-# 1. 모델 작성 후 자동 생성
-uv run alembic revision --autogenerate -m "add users, patients, medical_records, xray_images, ai_analysis_results tables"
+## 3. 환경 변수와 DB 연결
 
-# 2. 생성된 alembic/versions/xxxx_add_....py 검토
-#    - upgrade()/downgrade() 양쪽 다 5개 테이블이 맞게 생성/삭제되는지 확인
-#    - FK와 ON DELETE CASCADE가 의도대로 잡혔는지 확인
-#    - Enum 컬럼이 MySQL에서 ENUM 타입으로 정상 생성되는지 확인
+`.env.example`에는 안전한 예시값만 두고, 실행은 Git에서 제외된 `.env`를 사용한다. 로컬 Alembic은 `DB_HOST=localhost`, Compose 내부 연결은 `DB_HOST=mysql`을 사용한다.
 
-# 3. 실제 반영
+이 프로젝트는 비동기 SQLAlchemy이므로 `mysql+asyncmy`, `create_async_engine`, `async_engine_from_config`를 일관되게 사용한다. Alembic에 DB URL을 넣을 때 `%`를 `%%`로 이스케이프해 ConfigParser 보간 문제를 방지했다.
+
+## 4. ORM 모델과 테이블
+
+| 모델 | 테이블 | 주요 역할 |
+|---|---|---|
+| `User` | `users` | 사용자, 부서, 권한 |
+| `Patient` | `patients` | 환자 기본 정보 |
+| `MedicalRecord` | `medical_records` | 환자 진료 기록 |
+| `XrayImage` | `xray_images` | X-ray 영상과 업로더 |
+| `AIAnalysisResult` | `ai_analysis_results` | 폐렴 예측 및 신뢰도 |
+
+SQLAlchemy 2.x의 `Mapped`, `mapped_column`, `relationship`를 사용했다. ERD의 `xray_images.uploader_id`는 `SET NULL`과 참조 PK 자료형을 맞추기 위해 `Integer`, nullable로 보정했다.
+
+## 5. 관계와 삭제 정책
+
+| 자식 FK | 부모 | 삭제 정책 |
+|---|---|---|
+| `medical_records.patient_id` | `patients.id` | `CASCADE` |
+| `xray_images.record_id` | `medical_records.id` | `CASCADE` |
+| `xray_images.uploader_id` | `users.id` | `SET NULL` |
+| `ai_analysis_results.record_id` | `medical_records.id` | `CASCADE` |
+
+## 6. Alembic 설정과 실행
+
+`alembic/env.py`는 `Base.metadata`와 모든 모델을 로드하고 비동기 엔진을 사용한다.
+
+```bash
+uv run alembic revision --autogenerate -m create_initial_tables
 uv run alembic upgrade head
+uv run alembic current
+uv run alembic history
+uv run alembic check
+```
 
-# 4. 반영 확인
+생성 리비전은 `c5439fa798f8` (`create_initial_tables`)이다.
+
+## 7. downgrade 왕복 검증
+
+데이터가 없는 개인 로컬 DB에서만 실행했다.
+
+```bash
+uv run alembic downgrade base
+uv run alembic upgrade head
 uv run alembic current
 ```
 
-```
-$ docker compose up -d mysql
- Container oz_codingschool-mysql-1 Started
+최종 상태는 `c5439fa798f8 (head)`이고 `alembic check`는 추가 작업이 없음을 확인했다.
 
-$ uv run alembic revision --autogenerate -m "add users, patients, medical_records, xray_images, ai_analysis_results tables"
-INFO  [alembic.autogenerate.compare.tables] Detected added table 'patients'
-INFO  [alembic.autogenerate.compare.tables] Detected added table 'users'
-INFO  [alembic.autogenerate.compare.tables] Detected added table 'medical_records'
-INFO  [alembic.autogenerate.compare.tables] Detected added table 'ai_analysis_results'
-INFO  [alembic.autogenerate.compare.tables] Detected added table 'xray_images'
-Generating alembic/versions/07e8c9c475b3_add_users_patients_medical_records_xray_.py ...  done
+## 8. 실제 MySQL 스키마 검증
 
-$ uv run alembic upgrade head
-INFO  [alembic.runtime.migration] Running upgrade  -> 07e8c9c475b3, add users, patients, medical_records, xray_images, ai_analysis_results tables
+| 검증 항목 | 결과 |
+|---|---|
+| 업무 테이블 | 5개 모두 생성 |
+| PK / AUTO_INCREMENT | 5개 테이블 모두 정상 |
+| UNIQUE | `users.email`, `users.phone_number`, `medical_records.chart_number` |
+| ENUM | gender, department, role 값 일치 |
+| `Numeric(5, 2)` | MySQL `decimal(5,2)`로 생성 |
+| FK 자료형 | 부모 PK와 일치 |
+| 삭제 정책 | CASCADE 3개, SET NULL 1개 |
+| Alembic | `c5439fa798f8` |
 
-$ uv run alembic current
-07e8c9c475b3 (head)
-```
+## 9. Adminer DB Viewer
 
-## 5. DB Viewer 확인 스크린샷
+![DBeaver MySQL ERD](images/day3_mysql_schema_dbeaver.png)
 
-> ⚠️ 이 섹션은 실제로 `alembic upgrade head`를 실행한 뒤, DBeaver/TablePlus/VS Code Database Client 등으로 접속해 5개 테이블(`users`, `patients`, `medical_records`, `xray_images`, `ai_analysis_results`)과 컬럼이 생성된 화면을 캡처해서 붙여넣는 자리입니다.
+- 주소: `http://localhost:8080`
+- 서버: `mysql`
+- 사용자/비밀번호/DB: `.env`의 `DB_USER`, `DB_PASSWORD`, `DB_NAME`
+- 포함 테이블: 5개 업무 테이블과 `alembic_version`
+- 저장 경로: `docs/images/day3_mysql_schema_adminer.png`
 
-![db-viewer](./images/3일차_db_viewer.png)
+## 10. 오류와 해결
 
-체크리스트:
-- [x] 5개 테이블이 모두 보이는가
-- [ ] 각 테이블의 컬럼·타입이 ERD와 일치하는가
-- [x] `medical_records.patient_id`, `xray_images.record_id`/`uploader_id`, `ai_analysis_results.record_id`에 FK 제약조건이 걸려 있는가 (`information_schema.KEY_COLUMN_USAGE`로 확인)
-- [x] `gender`/`role`/`department` 컬럼이 ENUM 타입으로 생성됐는가 (`information_schema.COLUMNS`로 확인)
+- 최신 main의 `practice_apis.py`에 쉘 명령이 Python 코드로 들어가고 회원 생성 함수 정의가 누락된 문법 오류가 있어, 쉘 명령을 제거하고 기존 브랜치의 함수를 복원했다.
+- `pytest`는 프로젝트 의존성과 실행 환경에 없어 실행하지 못했다. 별도 테스트 파일도 확인되지 않았다.
+- ERD의 `uploader_id bigint NOT NULL` + `users.id integer` + `SET NULL` 조합은 무결성 조건과 충돌해 `Integer NULL`로 보정했다.
+- 기존 초기 리비전은 3개 테이블만 포함했다. 행 수가 0임을 확인한 뒤 개인 로컬 DB에서 재생성했다.
 
-## 6. 발견한 이슈와 결정 사항
+## 11. 보안과 협업 주의사항
 
-- **`xray_images`에는 `updated_at`이 없음** — ERD상 다른 테이블과 달리 생성일(`created_at`)만 존재해, `TimestampMixin`을 상속하지 않고 `created_at`만 직접 선언했습니다.
-- **`uploader_id → users.id`에는 CASCADE를 걸지 않음** — 업로드한 직원 계정이 비활성화/삭제되더라도 엑스레이 기록 자체는 남아야 하므로, 이 FK만 `ON DELETE CASCADE`를 적용하지 않았습니다.
-- **`patients.gender`는 nullable로 처리** — ERD에 NOT NULL 표시가 없어 선택 입력으로 두었습니다. 필수로 바꿔야 한다면 팀 논의 후 마이그레이션을 다시 생성해야 합니다.
-- **`UUIDMixin` 미사용** — `app/core/db/models.py`에 `UUIDMixin`이 준비되어 있지만, ERD가 정수형 PK를 명시하고 있어 이번 5개 테이블에는 적용하지 않았습니다.
-- **FK 컬럼 타입 불일치로 첫 `alembic upgrade head` 실패** — `patients.id`/`users.id`는 `Integer`인데, 이를 참조하는 `medical_records.patient_id`와 `xray_images.uploader_id`가 `BigInteger`로 선언되어 있어 MySQL이 FK 생성을 거부했습니다(`Referencing column ... incompatible`, errno 3780). `patient_id`/`uploader_id`를 참조 대상과 동일한 `Integer`로 맞춰 해결했습니다. `medical_records.id`(BigInteger)를 참조하는 `xray_images.record_id`, `ai_analysis_results.record_id`는 원래부터 타입이 일치해 문제 없었습니다.
+- `.env`와 비밀번호를 커밋, 문서, PR에 포함하지 않는다.
+- 기존 DB 볼륨을 임의로 삭제하지 않는다.
+- 공유 DB에서 `downgrade base`를 실행하지 않는다.
+- 다른 Alembic head가 생기면 병합 리비전 필요 여부를 먼저 확인한다.
 
-## 7. PR 정보
+## 12. 완료 체크리스트
 
-- 브랜치: `feature/moonbio23`
-- base: `develop`
-- 포함 파일: `app/models/*.py`, `alembic/versions/*.py`, `docs/3일차_db_migration.md`, `docs/images/3일차_db_viewer.png`
-- 리뷰 요청 시 확인 포인트: FK 방향, CASCADE 적용 여부, Enum 컬럼명, `app/models/__init__.py` import 누락 여부
+- [x] 5개 ORM 모델 등록
+- [x] MySQL 8.0 healthy
+- [x] Adminer Up
+- [x] 마이그레이션 생성 및 head 적용
+- [x] downgrade / upgrade 왕복
+- [x] `information_schema` 검증
+- [x] `.env` Git 제외
+- [x] Adminer 실제 화면 캡처
 
-## 참고자료
 
-- [ERD 원본 (dbdiagram.io)](https://dbdiagram.io/d/ai_health_assignment-69d5f55f808962968443c041)
-- [Notion — DB 모델 작성](https://app.notion.com/p/DB-ef2638e5d63683c1b0ac8128d272f8a3)
-- [SQL (관계형) 데이터베이스 - FastAPI](https://www.joonas.io/fastapi/ko/tutorial/sql-databases/)
-- [\[SQLAlchemy\] Alembic을 이용한 마이그레이션 관리 방법](https://devspoon.tistory.com/304)

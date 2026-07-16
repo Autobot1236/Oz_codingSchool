@@ -167,22 +167,6 @@ async def get_user(user_id: int) -> dict:
     status_code=status.HTTP_201_CREATED,
     summary="회원 등록",
 )
-async def create_user(payload: UserCreate) -> dict:
-    if email_exists(payload.email):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="이미 등록된 이메일입니다.",
-        )
-
-    next_id = max(
-        (int(user["id"]) for user in user_list),
-        default=0,
-    ) + 1
-
-    new_user = {
-        "id": next_id,
-        **payload.model_dump(),
-    }
 
     user_list.append(new_user)
     return new_user
