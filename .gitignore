@@ -19,5 +19,6 @@ settings.json
 envs/
 *.env
 .env
+**/.env
 
 .python-version
