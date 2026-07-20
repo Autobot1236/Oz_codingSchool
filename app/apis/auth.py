@@ -1,15 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from datetime import timedelta
+from typing import Annotated
 
 from app.core.db.databases import async_get_db
 from app.core.security import get_password_hash, create_access_token, verify_password
 from app.models.enums import Role
 from app.models.user import User
 from app.schemas.user import SignupRequest, UserResponse, LoginRequest, LoginResponse, LoginUserResponse
-from app.core.config import settings
+from app.schemas.auth import AccessTokenData, AccessTokenResponse
+from app.services.auth_service import rotate_refresh_token
+from app.core.config import settings, auth_settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -107,3 +110,31 @@ def logout(response: Response):
         secure=True,  # 프로덕션 HTTPS 환경 기준
     )
     return {"detail": "성공적으로 로그아웃되었습니다."}
+  
+ # 4. 토큰 재발급 (NFR-USER-001)  
+@router.post("/refresh", response_model=AccessTokenResponse)
+async def refresh_access_token(
+    response: Response,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+    refresh_token: Annotated[str | None, Cookie()] = None,
+) -> AccessTokenResponse:
+    if refresh_token is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "REFRESH_TOKEN_MISSING", "message": "Refresh Token이 없습니다."},
+        )
+
+    user, replacement = await rotate_refresh_token(db, refresh_token)
+    access_token, expires_in = create_access_token(user.id)
+    response.set_cookie(
+        key="refresh_token",
+        value=replacement,
+        max_age=auth_settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        httponly=True,
+        secure=auth_settings.COOKIE_SECURE,
+        samesite=auth_settings.COOKIE_SAMESITE,
+        path="/api/v1/auth",
+    )
+    return AccessTokenResponse(
+        data=AccessTokenData(accessToken=access_token, expiresIn=expires_in)
+    )
