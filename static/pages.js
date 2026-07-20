@@ -188,6 +188,11 @@ const pages = {
         }
     },
 
+    // 백엔드 UserProfileResponse는 department/gender/role을 enum "이름"(영문)으로 내려줍니다.
+    // 예: department="MEDICAL"|"DEV"|"RESEARCH", gender="M"|"F", role="PENDING"|"STAFF"|"ADMIN"
+    departmentLabels: { MEDICAL: '의료진', DEV: '개발팀', RESEARCH: '연구진' },
+    roleLabels: { PENDING: '대기자', STAFF: '스태프', ADMIN: '어드민' },
+
     async renderMyPage() {
         const html = await utils.loadTemplate('my-page');
         const app = document.getElementById('app');
@@ -196,12 +201,12 @@ const pages = {
         // 현재 사용자 정보 표시
         document.getElementById('me-email').innerText = state.user.email;
         document.getElementById('me-name-display').innerText = state.user.name;
-        document.getElementById('me-department-display').innerText = state.user.department;
-        document.getElementById('me-gender-display').innerText = state.user.gender === 'male' ? '남성' : '여성';
+        document.getElementById('me-department-display').innerText = this.departmentLabels[state.user.department] || state.user.department;
+        document.getElementById('me-gender-display').innerText = state.user.gender === 'M' ? '남성' : '여성';
         document.getElementById('me-phone-display').innerText = utils.formatPhoneNumber(state.user.phone_number);
-        document.getElementById('me-role-display').innerText = state.user.role;
+        document.getElementById('me-role-display').innerText = this.roleLabels[state.user.role] || state.user.role;
 
-        // 수정 폼 초기값 설정
+        // 수정 폼 초기값 설정 (select value는 반드시 백엔드가 이해하는 영문 값이어야 함)
         document.getElementById('update-me-department').value = state.user.department;
         document.getElementById('update-me-phone').value = utils.formatPhoneNumber(state.user.phone_number);
         
@@ -303,9 +308,10 @@ const pages = {
 
     async handleUpdatePassword(e) {
         e.preventDefault();
+        // 백엔드 PasswordChangeRequest는 camelCase 필드명을 요구합니다.
         const data = {
-            current_password: document.getElementById('old-password').value,
-            new_password: document.getElementById('new-password').value
+            currentPassword: document.getElementById('old-password').value,
+            newPassword: document.getElementById('new-password').value
         };
 
         try {
