@@ -1,6 +1,6 @@
 import re
 
-from pydantic import BaseModel, field_validator, EmailStr, Field, model_validator
+from pydantic import BaseModel, field_validator, EmailStr, Field, model_validator, , ConfigDict
 from app.models.enums import Department, Gender, Role
 
 EMAIL_PATTERN = re.compile(
@@ -43,6 +43,38 @@ class UserRoleResponse(BaseModel):
     email: str
     name: str
     role: str
+
+
+class UserProfileResponse(BaseModel):
+    name: str
+    email: str
+    department: str
+    gender: str
+    phone_number: str
+    role: str
+
+
+class UserProfileUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    department: str | None = None
+    phone_number: str | None = None
+
+    @field_validator("department")
+    @classmethod
+    def validate_department(cls, department: str | None) -> str:
+        if department is None:
+            raise ValueError("department에는 null을 입력할 수 없습니다.")
+        return department
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone_number(cls, phone_number: str | None) -> str:
+        if phone_number is None:
+            raise ValueError("phone_number에는 null을 입력할 수 없습니다.")
+        if not re.fullmatch(r"\d{10,11}", phone_number):
+            raise ValueError("휴대폰 번호는 숫자 10~11자리여야 합니다.")
+        return phone_number
 
 class SignupRequest(BaseModel):
     email: EmailStr
