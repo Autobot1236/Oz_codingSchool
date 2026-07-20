@@ -171,10 +171,9 @@ async def create_user(payload: UserCreate) -> dict:
         )
 
     new_user = {
-        "id": max(user["id"] for user in user_list) + 1,
+        "id": max((user["id"] for user in user_list), default=0) + 1,
         **payload.model_dump(),
     }
-
     user_list.append(new_user)
     return new_user
 

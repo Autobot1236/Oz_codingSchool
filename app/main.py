@@ -6,7 +6,11 @@ from starlette.staticfiles import StaticFiles
 from starlette.responses import FileResponse
 from app.apis import auth, practice_apis, users
 
+from app.apis import auth  # app/apis 하위 라우터 모듈 import
+
 app = FastAPI()
+# 라우터 등록
+app.include_router(auth.router)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
