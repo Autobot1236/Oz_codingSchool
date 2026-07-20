@@ -6,7 +6,7 @@ from datetime import timedelta
 from typing import Annotated
 
 from app.core.db.databases import async_get_db
-from app.core.security import get_password_hash, create_access_token, verify_password
+from app.core.security import hash_password, create_access_token, verify_password
 from app.models.enums import Role
 from app.models.user import User
 from app.schemas.user import SignupRequest, UserResponse, LoginRequest, LoginResponse, LoginUserResponse
@@ -43,7 +43,7 @@ async def signup(
     # 계정 생성 (role은 항상 PENDING 고정)
     new_user = User(
         email=data.email,
-        hashed_password=get_password_hash(data.password),
+        hashed_password=hash_password(data.password),
         name=data.name,
         department=data.department,
         gender=data.gender,
@@ -99,15 +99,18 @@ async def login(
         ),
     )
   
- # 3. 로그아웃 (REQ-USER-003)
+# 3. 로그아웃 (REQ-USER-003)
 @router.post("/logout", status_code=status.HTTP_200_OK)
-def logout(response: Response):
+async def logout(response: Response):
     # httpOnly 쿠키로 전달된 refresh_token 만료 처리
+    # /auth/refresh 에서 쿠키를 path="/api/v1/auth", samesite=auth_settings.COOKIE_SAMESITE 로 설정하므로
+    # 삭제할 때도 동일한 path/samesite를 지정해야 브라우저가 같은 쿠키로 인식해서 실제로 지워진다.
     response.delete_cookie(
         key="refresh_token",
+        path="/api/v1/auth",
         httponly=True,
-        samesite="lax",
-        secure=True,  # 프로덕션 HTTPS 환경 기준
+        samesite=auth_settings.COOKIE_SAMESITE,
+        secure=auth_settings.COOKIE_SECURE,
     )
     return {"detail": "성공적으로 로그아웃되었습니다."}
   
@@ -125,7 +128,11 @@ async def refresh_access_token(
         )
 
     user, replacement = await rotate_refresh_token(db, refresh_token)
-    access_token, expires_in = create_access_token(user.id)
+    expires_in = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    access_token = create_access_token(
+        subject=str(user.id),
+        expires_delta=timedelta(seconds=expires_in),
+    )
     response.set_cookie(
         key="refresh_token",
         value=replacement,
