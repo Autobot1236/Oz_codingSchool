@@ -1,21 +1,16 @@
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from typing import AsyncGenerator
-from app.core.config import settings
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
+
+DATABASE_URL = "sqlite:///local.db"
+
+# SQLite 커넥션 생성 시 외래키 제약 강제 활성화 이벤트 리스너 등록
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
 
-DATABASE_PREFIX = "mysql+asyncmy://"
-DATABASE_URI = f"{settings.DB_USER}:{settings.DB_PASSWORD}@{settings.DB_HOST}:{settings.DB_PORT}/{settings.DB_NAME}"
-DATABASE_URL = f"{DATABASE_PREFIX}{DATABASE_URI}"
+@event.listens_for(engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
-# 비동기 엔진 생성
-async_engine = create_async_engine(DATABASE_URL, echo=False, future=True)
-# 비동기 세션 팩토리 생성
-AsyncSessionLocal = async_sessionmaker(bind=async_engine, autoflush=False, expire_on_commit=False)
-# 모델 베이스 생성
-Base = declarative_base()
-
-# 세션 생성 함수
-async def async_get_db() -> AsyncGenerator[AsyncSession, None]:
-    async with AsyncSessionLocal() as db:
-        yield db
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
