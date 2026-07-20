@@ -2,13 +2,16 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datetime import timedelta
+
 from app.core.db.databases import async_get_db
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, create_access_token, verify_password
 from app.models.enums import Role
 from app.models.user import User
-from app.schemas.user import SignupRequest, UserResponse
+from app.schemas.user import SignupRequest, UserResponse, LoginRequest, LoginResponse, LoginUserResponse
+from app.core.config import settings
 
-router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
+router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 # 1. 회원가입 (REQ-USER-001)
@@ -53,7 +56,47 @@ async def signup(
     return new_user
 
 
-# 2. 로그아웃 (REQ-USER-003)
+# 2. 로그인 (REQ-USER-002)
+@router.post(
+    "/login",
+    response_model=LoginResponse,
+    summary="로그인",
+)
+async def login(
+    payload: LoginRequest,
+    db: AsyncSession = Depends(async_get_db),
+) -> LoginResponse:
+    result = await db.execute(select(User).where(User.email == payload.email))
+    user = result.scalar_one_or_none()
+
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="이메일 또는 비밀번호가 올바르지 않습니다.",
+        )
+
+    if not verify_password(payload.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="이메일 또는 비밀번호가 올바르지 않습니다.",
+        )
+
+    access_token = create_access_token(
+        subject=str(user.id),
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    return LoginResponse(
+        access_token=access_token,
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        user=LoginUserResponse(
+            id=user.id,
+            email=user.email,
+            name=user.name,
+            role=user.role.name,
+        ),
+    )
+  
+ # 3. 로그아웃 (REQ-USER-003)
 @router.post("/logout", status_code=status.HTTP_200_OK)
 def logout(response: Response):
     # httpOnly 쿠키로 전달된 refresh_token 만료 처리
