@@ -7,7 +7,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import auth_settings
-from app.core.dependencies import get_current_user
 from app.core.security import hash_password, verify_password, require_admin, get_current_user
 from app.core.db.databases import async_get_db
 from app.models.enums import Department, Role

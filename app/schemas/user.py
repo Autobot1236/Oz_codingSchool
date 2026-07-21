@@ -1,6 +1,6 @@
 import re
 
-from pydantic import BaseModel, field_validator, EmailStr, Field, model_validator, , ConfigDict
+from pydantic import BaseModel, field_validator, EmailStr, Field, model_validator, ConfigDict
 from app.models.enums import Department, Gender, Role
 
 EMAIL_PATTERN = re.compile(
@@ -103,9 +103,9 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
-        
-       
- class PasswordChangeRequest(BaseModel):
+
+
+class PasswordChangeRequest(BaseModel):
     currentPassword: str = Field(min_length=1, max_length=128)
     newPassword: str = Field(min_length=8, max_length=64)
 

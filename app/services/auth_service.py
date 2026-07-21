@@ -4,8 +4,8 @@ from uuid import uuid4
 from fastapi import HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.auth_config import auth_settings
-from app.core.auth_security import create_refresh_token, hash_token
+from app.core.config import auth_settings
+from app.core.security import create_refresh_token, hash_token
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
 

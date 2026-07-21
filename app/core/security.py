@@ -1,51 +1,7 @@
-import hashlib
-import secrets
-from datetime import UTC, datetime, timedelta
-
-import jwt
-from pwdlib import PasswordHash
-
-from app.core.config import auth_settings
-
-
-password_hash = PasswordHash.recommended()
-
-
-def hash_password(password: str) -> str:
-    return password_hash.hash(password)
-
-
-def verify_password(password: str, hashed_password: str) -> bool:
-    return password_hash.verify(password, hashed_password)
-
-
-def create_access_token(user_id: int) -> tuple[str, int]:
-    now = datetime.now(UTC)
-    expires_in = auth_settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
-    token = jwt.encode(
-        {"user_id": user_id, "iat": now, "exp": now + timedelta(seconds=expires_in)},
-        auth_settings.JWT_SECRET_KEY,
-        algorithm=auth_settings.JWT_ALGORITHM,
-    )
-    return token, expires_in
-
-
-def decode_access_token(token: str) -> dict:
-    return jwt.decode(
-        token,
-        auth_settings.JWT_SECRET_KEY,
-        algorithms=[auth_settings.JWT_ALGORITHM],
-    )
-
-
-def create_refresh_token() -> str:
-    return secrets.token_urlsafe(48)
-
-
-def hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
 from __future__ import annotations
 
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -96,6 +52,14 @@ def hash_password(plain_password: str) -> str:
     return password_hasher.hash(plain_password)
 
 
+def create_refresh_token() -> str:
+    return secrets.token_urlsafe(48)
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: AsyncSession = Depends(async_get_db),
@@ -131,33 +95,3 @@ async def require_admin(current_user: User = Depends(get_current_user)) -> User:
             detail="관리자 권한이 필요합니다.",
         )
     return current_user
-import base64
-import os
-
-from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-
-
-SCRYPT_LENGTH = 32
-SCRYPT_N = 2**14
-SCRYPT_R = 8
-SCRYPT_P = 1
-
-
-def _derive_password(password: str, salt: bytes) -> bytes:
-    kdf = Scrypt(
-        salt=salt,
-        length=SCRYPT_LENGTH,
-        n=SCRYPT_N,
-        r=SCRYPT_R,
-        p=SCRYPT_P,
-    )
-    return kdf.derive(password.encode("utf-8"))
-
-
-def get_password_hash(password: str) -> str:
-    """Scrypt로 비밀번호를 해시하여 저장 가능한 문자열로 반환한다."""
-    salt = os.urandom(16)
-    derived_key = _derive_password(password, salt)
-    encoded_salt = base64.urlsafe_b64encode(salt).decode("ascii")
-    encoded_key = base64.urlsafe_b64encode(derived_key).decode("ascii")
-    return f"scrypt${SCRYPT_N}${SCRYPT_R}${SCRYPT_P}${encoded_salt}${encoded_key}"
