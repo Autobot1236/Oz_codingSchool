@@ -178,3 +178,25 @@ async def update_my_profile(
         ) from exc
 
     return _to_profile_response(current_user)
+
+
+
+# 5. 회원 탈퇴 (REQ-USER-009)
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_account(
+    response: Response,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+) -> None:
+    await db.delete(user)
+    await db.commit()
+
+    # refresh_tokens.user_id는 ondelete="CASCADE"라 DB에서 함께 삭제되지만,
+    # 브라우저에 남아있는 쿠키는 별도로 지워줘야 클라이언트가 탈퇴 상태를 인지한다.
+    response.delete_cookie(
+        key="refresh_token",
+        path="/api/v1/auth",
+        secure=auth_settings.COOKIE_SECURE,
+        httponly=True,
+        samesite=auth_settings.COOKIE_SAMESITE,
+    )

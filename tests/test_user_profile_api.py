@@ -176,5 +176,22 @@ class UserProfileApiTestCase(unittest.TestCase):
         self.db.rollback.assert_awaited_once()
 
 
+    def test_delete_my_account_removes_user_and_clears_cookie(self) -> None:
+        response = self.client.delete("/users/me")
+
+        self.assertEqual(response.status_code, 204)
+        self.db.delete.assert_awaited_once_with(self.user)
+        self.db.commit.assert_awaited_once()
+        self.assertNotIn("refresh_token", response.cookies)
+
+    def test_delete_my_account_requires_authentication(self) -> None:
+        del app.dependency_overrides[get_current_user]
+
+        response = self.client.delete("/users/me")
+
+        self.assertEqual(response.status_code, 401)
+        self.db.delete.assert_not_awaited()
+
+
 if __name__ == "__main__":
     unittest.main()
