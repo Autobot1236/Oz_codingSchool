@@ -348,3 +348,28 @@ Swagger UI(`/docs`)에서 8개 엔드포인트의 정상·권한 실패·검증 
 - `docs/4일차_USER_API_설계.md`
 - `app/models/patient.py`, `app/models/medical_record.py`, `app/models/xray_image.py`
 - FastAPI [폼 및 파일 요청](https://fastapi.tiangolo.com/ko/tutorial/request-forms-and-files/)
+
+## 10. 역할별 API 구현 분담안
+
+5명 기준 권장 분담안이다. 모든 팀원은 최소 1개 API의 API·Service·Repository·테스트 중 담당 범위를 끝까지 구현하고, 병합 전 Swagger UI로 정상·실패 시나리오를 확인한다.
+
+| 담당 | 담당 API | 주 담당 계층 | 배정 근거 |
+| --- | --- | --- | --- |
+| 이희진 | `GET /api/v1/patients` | Query Schema, Patient Repository | 이름 검색·성별·나이 범위 필터·페이지네이션의 공통 조회 기준을 담당한다. |
+| 이수인 | `GET /api/v1/patients/{patient_id}`<br>`GET /api/v1/medical-records/{record_id}` | API, Response Schema | 인증된 상세 조회와 환자·진료기록의 `404` 응답 계약을 담당한다. |
+| 안상균 | `POST /api/v1/patients`<br>`DELETE /api/v1/patients/{patient_id}` | Patient Service, Repository | 환자 생성과 연관 진료기록·X-Ray 데이터의 삭제 정책 및 트랜잭션을 담당한다. |
+| 양준혁 | `PATCH /api/v1/patients/{patient_id}`<br>`POST /api/v1/patients/{patient_id}/medical-records` | MedicalRecord Service, File Storage | 부분 수정 검증과 `multipart/form-data` X-Ray 업로드·파일 정리 흐름을 담당한다. |
+| 본인(프론트·통합 담당) | `GET /api/v1/patients/{patient_id}/medical-records` | API 연동, 목록 Response Schema | 증상 100자 말줄임·페이지네이션 응답을 환자 상세 화면에 연결하고 통합 테스트를 담당한다. |
+
+### 공통 작업 순서
+
+1. **공통 계약 확정:** `PatientCreate`, `PatientUpdate`, 목록 응답, 진료기록 응답 Schema와 의료진 권한 의존성을 먼저 합의한다.
+2. **환자 API 구현:** 등록·목록·상세·수정·삭제를 먼저 완성해 진료기록 API가 참조할 환자 데이터를 확보한다.
+3. **진료기록 API 구현:** 파일 저장 경로, DB 트랜잭션, 실패 시 파일 정리 규칙을 적용한다.
+4. **통합 검증:** Swagger UI에서 각 담당자가 정상 요청과 `401`, `403`, `404`, `409`, `422` 시나리오를 확인한다.
+
+### 병합 전 책임
+
+- 담당자는 자신이 수정한 API의 정상·실패 테스트를 추가한다.
+- 파일 업로드와 환자 삭제 변경은 로컬 파일이 실제로 생성·삭제되는지 함께 확인한다.
+- 프론트·통합 담당자는 API 경로와 응답 필드가 문서 계약과 같은지 확인한다.
