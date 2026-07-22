@@ -9,15 +9,15 @@ async function login(email, password) {
     if (errorEl) errorEl.style.display = 'none';
 
     try {
-        const data = await apis.login(email, password);
+        const loginResponse = await apis.login(email, password);
 
-        if (data && data.status === 401) {
+        if (loginResponse && loginResponse.status === 401) {
             if (errorEl) errorEl.style.display = 'block';
             return;
         }
 
-        if (data) {
-            state.token = data.access_token;
+        if (loginResponse) {
+            state.token = loginResponse.access_token;
             localStorage.setItem('token', state.token);
             localStorage.setItem('isLoggedIn', 'true');
             await checkAuth();
@@ -66,9 +66,9 @@ async function checkAuth() {
         try {
             const refreshResponse = await apis.refresh();
             if (refreshResponse.ok) {
-                // 백엔드 응답 형태: { success, data: { accessToken, tokenType, expiresIn }, message }
+                // 백엔드 응답 형태: { access_token, token_type, expires_in }
                 const body = await refreshResponse.json();
-                state.token = body.data.accessToken;
+                state.token = body.access_token;
                 localStorage.setItem('token', state.token);
             } else {
                 // 리프레시 실패 시 로그인 상태 해제

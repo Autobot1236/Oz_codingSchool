@@ -34,7 +34,7 @@ class LoginResponse(BaseModel):
     user: LoginUserResponse
 
 
-class RoleUpdateRequest(BaseModel):
+class UserRoleUpdateRequest(BaseModel):
     role: str
 
 
@@ -43,6 +43,24 @@ class UserRoleResponse(BaseModel):
     email: str
     name: str
     role: str
+
+
+class AdminUserListItem(BaseModel):
+    id: int
+    email: str
+    name: str
+    department: str
+    gender: str
+    phone_number: str
+    role: str
+    is_active: bool
+
+
+class AdminUserListResponse(BaseModel):
+    users: list[AdminUserListItem]
+    page: int
+    size: int
+    total: int
 
 
 class UserProfileResponse(BaseModel):
@@ -101,15 +119,14 @@ class UserResponse(BaseModel):
     role: Role
     is_active: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PasswordChangeRequest(BaseModel):
-    currentPassword: str = Field(min_length=1, max_length=128)
-    newPassword: str = Field(min_length=8, max_length=64)
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=64)
 
-    @field_validator("newPassword")
+    @field_validator("new_password")
     @classmethod
     def validate_new_password(cls, password: str) -> str:
         if not re.search(r"[A-Za-z]", password):
@@ -122,6 +139,6 @@ class PasswordChangeRequest(BaseModel):
 
     @model_validator(mode="after")
     def reject_same_password(self) -> "PasswordChangeRequest":
-        if self.currentPassword == self.newPassword:
+        if self.current_password == self.new_password:
             raise ValueError("새 비밀번호는 기존 비밀번호와 달라야 합니다.")
         return self
