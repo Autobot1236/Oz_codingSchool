@@ -2,9 +2,9 @@ from pydantic import BaseModel
 
 
 class AccessTokenData(BaseModel):
-    accessToken: str
-    tokenType: str = "Bearer"
-    expiresIn: int
+    access_token: str
+    token_type: str = "Bearer"
+    expires_in: int
 
 
 class AccessTokenResponse(BaseModel):

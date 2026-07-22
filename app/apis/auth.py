@@ -6,15 +6,15 @@ from datetime import timedelta
 from typing import Annotated
 
 from app.core.db.databases import async_get_db
-from app.core.security import hash_password, create_access_token, verify_password
+from app.core.security import create_access_token, get_current_user, hash_password, verify_password
 from app.models.enums import Role
 from app.models.user import User
 from app.schemas.user import SignupRequest, UserResponse, LoginRequest, LoginResponse, LoginUserResponse
 from app.schemas.auth import AccessTokenData, AccessTokenResponse
-from app.services.auth_service import rotate_refresh_token
+from app.services.auth_service import issue_refresh_token, revoke_all_refresh_tokens, rotate_refresh_token
 from app.core.config import settings, auth_settings
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
 # 1. 회원가입 (REQ-USER-001)
@@ -67,6 +67,7 @@ async def signup(
 )
 async def login(
     payload: LoginRequest,
+    response: Response,
     db: AsyncSession = Depends(async_get_db),
 ) -> LoginResponse:
     result = await db.execute(select(User).where(User.email == payload.email))
@@ -88,6 +89,17 @@ async def login(
         subject=str(user.id),
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
+    refresh_token = await issue_refresh_token(db, user.id)
+    await db.commit()
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        max_age=auth_settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        httponly=True,
+        secure=auth_settings.COOKIE_SECURE,
+        samesite=auth_settings.COOKIE_SAMESITE,
+        path="/api/v1/auth",
+    )
     return LoginResponse(
         access_token=access_token,
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
@@ -101,10 +113,14 @@ async def login(
   
 # 3. 로그아웃 (REQ-USER-003)
 @router.post("/logout", status_code=status.HTTP_200_OK)
-async def logout(response: Response):
-    # httpOnly 쿠키로 전달된 refresh_token 만료 처리
-    # /auth/refresh 에서 쿠키를 path="/api/v1/auth", samesite=auth_settings.COOKIE_SAMESITE 로 설정하므로
-    # 삭제할 때도 동일한 path/samesite를 지정해야 브라우저가 같은 쿠키로 인식해서 실제로 지워진다.
+async def logout(
+    response: Response,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+):
+    # 서버에 저장한 토큰을 폐기하고, 브라우저의 httpOnly 쿠키도 제거한다.
+    await revoke_all_refresh_tokens(db, current_user.id)
+    await db.commit()
     response.delete_cookie(
         key="refresh_token",
         path="/api/v1/auth",
@@ -143,5 +159,5 @@ async def refresh_access_token(
         path="/api/v1/auth",
     )
     return AccessTokenResponse(
-        data=AccessTokenData(accessToken=access_token, expiresIn=expires_in)
+        data=AccessTokenData(access_token=access_token, expires_in=expires_in)
     )

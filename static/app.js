@@ -66,9 +66,9 @@ async function checkAuth() {
         try {
             const refreshResponse = await apis.refresh();
             if (refreshResponse.ok) {
-                // 백엔드 응답 형태: { success, data: { accessToken, tokenType, expiresIn }, message }
+                // 백엔드 응답 형태: { success, data: { access_token, token_type, expires_in }, message }
                 const body = await refreshResponse.json();
-                state.token = body.data.accessToken;
+                state.token = body.data.access_token;
                 localStorage.setItem('token', state.token);
             } else {
                 // 리프레시 실패 시 로그인 상태 해제

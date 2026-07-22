@@ -18,7 +18,7 @@ from app.schemas.user import (
     PasswordChangeRequest
 )
 
-router = APIRouter(prefix="/users", tags=["users"])
+router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
 
 def _to_profile_response(user: User) -> UserProfileResponse:
@@ -40,18 +40,18 @@ async def change_my_password(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(async_get_db)],
 ) -> None:
-    if not verify_password(payload.currentPassword, user.hashed_password):
+    if not verify_password(payload.current_password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "CURRENT_PASSWORD_MISMATCH", "message": "기존 비밀번호가 일치하지 않습니다."},
         )
-    if verify_password(payload.newPassword, user.hashed_password):
+    if verify_password(payload.new_password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "PASSWORD_REUSE_NOT_ALLOWED", "message": "기존 비밀번호는 재사용할 수 없습니다."},
         )
 
-    user.hashed_password = hash_password(payload.newPassword)
+    user.hashed_password = hash_password(payload.new_password)
     await revoke_all_refresh_tokens(db, user.id)
     await db.commit()
 
@@ -76,6 +76,17 @@ async def get_my_profile(
     return _to_profile_response(current_user)
 
 
+# REQ-USER-009: 회원 탈퇴
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_account(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(async_get_db),
+) -> None:
+    await revoke_all_refresh_tokens(db, current_user.id)
+    await db.delete(current_user)
+    await db.commit()
+
+
 # 3. 회원 정보 수정 (REQ-USER-007)
 @router.patch(
     "/me",
@@ -98,14 +109,12 @@ async def update_my_profile(
     if payload.department is not None:
         try:
             department_name = payload.department.upper()
-            if department_name == "DEVELOPMENT":
-                department_name = "DEV"
             new_department = Department[department_name]
         except KeyError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
-                    "department는 MEDICAL, DEV(DEVELOPMENT), RESEARCH 중 "
+                    "department는 MEDICAL, DEV, RESEARCH 중 "
                     "하나여야 합니다."
                 ),
             ) from exc
