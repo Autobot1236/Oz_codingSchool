@@ -359,7 +359,7 @@ Swagger UI(`/docs`)에서 8개 엔드포인트의 정상·권한 실패·검증 
 | 이수인 | `GET /api/v1/patients/{patient_id}`<br>`GET /api/v1/medical-records/{record_id}` | API, Response Schema | 인증된 상세 조회와 환자·진료기록의 `404` 응답 계약을 담당한다. |
 | 안상균 | `POST /api/v1/patients`<br>`DELETE /api/v1/patients/{patient_id}` | Patient Service, Repository | 환자 생성과 연관 진료기록·X-Ray 데이터의 삭제 정책 및 트랜잭션을 담당한다. |
 | 양준혁 | `PATCH /api/v1/patients/{patient_id}`<br>`POST /api/v1/patients/{patient_id}/medical-records` | MedicalRecord Service, File Storage | 부분 수정 검증과 `multipart/form-data` X-Ray 업로드·파일 정리 흐름을 담당한다. |
-| 홍주(프론트·통합 담당) | `GET /api/v1/patients/{patient_id}/medical-records` | API 연동, 목록 Response Schema | 증상 100자 말줄임·페이지네이션 응답을 환자 상세 화면에 연결하고 통합 테스트를 담당한다. |
+| 문홍주(프론트·통합 담당) | `GET /api/v1/patients/{patient_id}/medical-records` | API 연동, 목록 Response Schema | 증상 100자 말줄임·페이지네이션 응답을 환자 상세 화면에 연결하고 통합 테스트를 담당한다. |
 
 ### 공통 작업 순서
 
