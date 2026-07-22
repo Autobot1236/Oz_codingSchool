@@ -65,9 +65,9 @@ const apis = {
                     });
 
                     if (refreshResponse.ok) {
-                        // 백엔드 응답 형태: { success, data: { access_token, token_type, expires_in }, message }
+                        // 백엔드 응답 형태: { access_token, token_type, expires_in }
                         const body = await refreshResponse.json();
-                        state.token = body.data.access_token;
+                        state.token = body.access_token;
                         localStorage.setItem('token', state.token);
                         
                         this.isRefreshing = false;

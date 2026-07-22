@@ -176,7 +176,7 @@ class UserProfileApiTestCase(unittest.TestCase):
 
     def test_delete_my_account_revokes_tokens_and_deletes_user(self) -> None:
         with patch(
-            "app.apis.users.revoke_all_refresh_tokens", new_callable=AsyncMock
+            "app.services.user_service.revoke_all_refresh_tokens", new_callable=AsyncMock
         ) as revoke_refresh_tokens:
             response = self.client.delete("/api/v1/users/me")
 
@@ -187,10 +187,10 @@ class UserProfileApiTestCase(unittest.TestCase):
 
     def test_change_password_revokes_refresh_tokens(self) -> None:
         with (
-            patch("app.apis.users.verify_password", side_effect=[True, False]),
-            patch("app.apis.users.hash_password", return_value="new-hashed-password"),
+            patch("app.services.user_service.verify_password", side_effect=[True, False]),
+            patch("app.services.user_service.hash_password", return_value="new-hashed-password"),
             patch(
-                "app.apis.users.revoke_all_refresh_tokens", new_callable=AsyncMock
+                "app.services.user_service.revoke_all_refresh_tokens", new_callable=AsyncMock
             ) as revoke_refresh_tokens,
         ):
             response = self.client.patch(

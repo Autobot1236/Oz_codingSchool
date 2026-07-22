@@ -34,7 +34,7 @@ class LoginResponse(BaseModel):
     user: LoginUserResponse
 
 
-class RoleUpdateRequest(BaseModel):
+class UserRoleUpdateRequest(BaseModel):
     role: str
 
 
@@ -119,8 +119,7 @@ class UserResponse(BaseModel):
     role: Role
     is_active: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PasswordChangeRequest(BaseModel):

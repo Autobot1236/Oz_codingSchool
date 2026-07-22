@@ -290,13 +290,13 @@ const pages = {
 
     async handleUpdateMe(e) {
         e.preventDefault();
-        const data = {
+        const profileUpdate = {
             department: document.getElementById('update-me-department').value,
             phone_number: document.getElementById('update-me-phone').value.replace(/[^\d]/g, '')
         };
 
         try {
-            await apis.updateMe(data);
+            await apis.updateMe(profileUpdate);
             utils.showAlert('회원 정보가 수정되었습니다.', 'success');
             await checkAuth(); // state 갱신 (app.js)
             this.renderMyPage();
@@ -309,13 +309,13 @@ const pages = {
 
     async handleUpdatePassword(e) {
         e.preventDefault();
-        const data = {
+        const passwordUpdate = {
             current_password: document.getElementById('old-password').value,
             new_password: document.getElementById('new-password').value
         };
 
         try {
-            await apis.updatePassword(data);
+            await apis.updatePassword(passwordUpdate);
             utils.showAlert('비밀번호가 변경되었습니다.', 'success');
             e.target.reset();
         } catch (err) {

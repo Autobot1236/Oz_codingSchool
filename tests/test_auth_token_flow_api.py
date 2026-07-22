@@ -46,10 +46,10 @@ class AuthTokenFlowApiTestCase(unittest.TestCase):
         self.db.execute.return_value = result
 
         with (
-            patch("app.apis.auth.verify_password", return_value=True),
-            patch("app.apis.auth.create_access_token", return_value="access-token"),
+            patch("app.services.auth_service.verify_password", return_value=True),
+            patch("app.services.auth_service.create_access_token", return_value="access-token"),
             patch(
-                "app.apis.auth.issue_refresh_token",
+                "app.services.auth_service.issue_refresh_token",
                 new_callable=AsyncMock,
                 return_value="refresh-token",
             ) as issue_refresh_token,
@@ -68,13 +68,17 @@ class AuthTokenFlowApiTestCase(unittest.TestCase):
         self.db.commit.assert_awaited_once()
 
     def test_signup_creates_pending_user_with_hashed_password(self) -> None:
-        self.db.scalar.side_effect = [None, None]
+        email_result = MagicMock()
+        email_result.scalar_one_or_none.return_value = None
+        phone_result = MagicMock()
+        phone_result.scalar_one_or_none.return_value = None
+        self.db.execute.side_effect = [email_result, phone_result]
 
         async def assign_user_id(user: User) -> None:
             user.id = 2
 
         self.db.refresh.side_effect = assign_user_id
-        with patch("app.apis.auth.hash_password", return_value="hashed-new-password"):
+        with patch("app.services.auth_service.hash_password", return_value="hashed-new-password"):
             response = self.client.post(
                 "/api/v1/auth/signup",
                 json={
@@ -96,6 +100,26 @@ class AuthTokenFlowApiTestCase(unittest.TestCase):
         self.assertEqual(created_user.role, Role.PENDING)
         self.db.commit.assert_awaited_once()
 
+    def test_signup_rejects_duplicate_email_with_conflict(self) -> None:
+        email_result = MagicMock()
+        email_result.scalar_one_or_none.return_value = self.user
+        self.db.execute.return_value = email_result
+
+        response = self.client.post(
+            "/api/v1/auth/signup",
+            json={
+                "email": self.user.email,
+                "password": "Password123!",
+                "name": "새사용자",
+                "department": "MEDICAL",
+                "gender": "M",
+                "phone_number": "01022223333",
+            },
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.db.commit.assert_not_awaited()
+
     def test_logout_requires_authentication_and_revokes_tokens(self) -> None:
         unauthenticated = self.client.post("/api/v1/auth/logout")
         self.assertEqual(unauthenticated.status_code, 401)
@@ -105,7 +129,7 @@ class AuthTokenFlowApiTestCase(unittest.TestCase):
 
         app.dependency_overrides[get_current_user] = override_current_user
         with patch(
-            "app.apis.auth.revoke_all_refresh_tokens", new_callable=AsyncMock
+            "app.services.auth_service.revoke_all_refresh_tokens", new_callable=AsyncMock
         ) as revoke_refresh_tokens:
             response = self.client.post("/api/v1/auth/logout")
 
@@ -117,18 +141,18 @@ class AuthTokenFlowApiTestCase(unittest.TestCase):
     def test_refresh_rotates_refresh_cookie(self) -> None:
         with (
             patch(
-                "app.apis.auth.rotate_refresh_token",
+                "app.services.auth_service.rotate_refresh_token",
                 new_callable=AsyncMock,
                 return_value=(self.user, "replacement-token"),
             ) as rotate_refresh_token,
-            patch("app.apis.auth.create_access_token", return_value="new-access-token"),
+            patch("app.services.auth_service.create_access_token", return_value="new-access-token"),
         ):
             response = self.client.post(
                 "/api/v1/auth/refresh", headers={"Cookie": "refresh_token=current-token"}
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["data"]["access_token"], "new-access-token")
+        self.assertEqual(response.json()["access_token"], "new-access-token")
         self.assertIn("refresh_token=replacement-token", response.headers["set-cookie"])
         self.assertIn("Path=/api/v1/auth", response.headers["set-cookie"])
         rotate_refresh_token.assert_awaited_once_with(self.db, "current-token")

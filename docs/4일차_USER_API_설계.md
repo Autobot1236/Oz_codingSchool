@@ -30,7 +30,7 @@ Authorization: Bearer <access_token>
 ```
 
 - 성공: `201 Created`
-- 이메일 또는 휴대폰 번호가 이미 있으면: `400 Bad Request`
+- 이메일 또는 휴대폰 번호가 이미 있으면: `409 Conflict`
 - 비밀번호는 8~20자이며 영문 대/소문자, 숫자, 특수문자를 각각 포함해야 한다.
 - 계정은 `PENDING` 권한으로 생성되고 비밀번호는 해시로만 저장한다.
 
@@ -61,6 +61,14 @@ Authorization: Bearer <access_token>
 - 요청 본문은 없으며 `refresh_token` 쿠키를 사용한다.
 - 성공: `200 OK`. 액세스 토큰을 응답 본문에 반환하고, 리프레시 토큰은 회전시켜
   새 쿠키로 설정한다.
+
+```json
+{
+  "access_token": "...",
+  "token_type": "Bearer",
+  "expires_in": 1800
+}
+```
 - 액세스 토큰 만료: 30분, 리프레시 토큰 만료: 7일.
 - 쿠키가 없거나 만료·재사용된 토큰이면: `401 Unauthorized`.
 
