@@ -12,7 +12,7 @@ const pages = {
         const actions = document.getElementById('home-actions');
         if (!state.user) {
             actions.innerHTML = '<button onclick="navigate(\'/login\')">로그인하여 시작하기</button>';
-        } else if (state.user.role === 'pending') {
+        } else if (state.user.role === 'PENDING') {
             actions.innerHTML = '<p>관리자의 승인을 기다리는 중입니다.</p>';
         } else {
             actions.innerHTML = '<button onclick="navigate(\'/patients\')">환자 목록 보기</button>';
@@ -62,7 +62,7 @@ const pages = {
                 <td>${p.id}</td>
                 <td>${p.name}</td>
                 <td>${p.age}</td>
-                <td>${p.gender === 'male' ? '남성' : '여성'}</td>
+                <td>${p.gender === 'M' ? '남성' : '여성'}</td>
                 <td>${utils.formatPhoneNumber(p.phone_number)}</td>
                 <td><button onclick="navigate('/patients/${p.id}')">상세보기</button></td>
             </tr>
@@ -88,7 +88,7 @@ const pages = {
         app.innerHTML = html;
         
         // 환자 정보 표시
-        document.getElementById('patient-name').innerText = `${patient.name} (${patient.gender === 'male' ? '남성' : '여성'})`;
+        document.getElementById('patient-name').innerText = `${patient.name} (${patient.gender === 'M' ? '남성' : '여성'})`;
         document.getElementById('patient-info').innerText = `나이: ${patient.age}세 | 연락처: ${utils.formatPhoneNumber(patient.phone_number)}`;
         
         // 수정 폼 초기값 설정
@@ -188,6 +188,11 @@ const pages = {
         }
     },
 
+    // 백엔드 UserProfileResponse는 department/gender/role을 enum "이름"(영문)으로 내려줍니다.
+    // 예: department="MEDICAL"|"DEV"|"RESEARCH", gender="M"|"F", role="PENDING"|"STAFF"|"ADMIN"
+    departmentLabels: { MEDICAL: '의료진', DEV: '개발팀', RESEARCH: '연구진' },
+    roleLabels: { PENDING: '대기자', STAFF: '스태프', ADMIN: '어드민' },
+
     async renderMyPage() {
         const html = await utils.loadTemplate('my-page');
         const app = document.getElementById('app');
@@ -196,12 +201,12 @@ const pages = {
         // 현재 사용자 정보 표시
         document.getElementById('me-email').innerText = state.user.email;
         document.getElementById('me-name-display').innerText = state.user.name;
-        document.getElementById('me-department-display').innerText = state.user.department;
-        document.getElementById('me-gender-display').innerText = state.user.gender === 'male' ? '남성' : '여성';
+        document.getElementById('me-department-display').innerText = this.departmentLabels[state.user.department] || state.user.department;
+        document.getElementById('me-gender-display').innerText = state.user.gender === 'M' ? '남성' : '여성';
         document.getElementById('me-phone-display').innerText = utils.formatPhoneNumber(state.user.phone_number);
-        document.getElementById('me-role-display').innerText = state.user.role;
+        document.getElementById('me-role-display').innerText = this.roleLabels[state.user.role] || state.user.role;
 
-        // 수정 폼 초기값 설정
+        // 수정 폼 초기값 설정 (select value는 반드시 백엔드가 이해하는 영문 값이어야 함)
         document.getElementById('update-me-department').value = state.user.department;
         document.getElementById('update-me-phone').value = utils.formatPhoneNumber(state.user.phone_number);
         
@@ -217,7 +222,8 @@ const pages = {
     },
 
     async renderAdminUsers(params = {}) {
-        const users = await apis.adminGetUsers(params);
+        const response = await apis.adminGetUsers(params);
+        const users = response.users;
         const html = await utils.loadTemplate('admin-users');
         if (state.currentPage !== '/admin/users') return;
         const app = document.getElementById('app');
@@ -226,7 +232,7 @@ const pages = {
         // 필드 값 복원
         const queryInput = document.getElementById('admin-search-query');
         const deptSelect = document.getElementById('admin-filter-dept');
-        if (queryInput && params.query) queryInput.value = params.query;
+        if (queryInput && params.keyword) queryInput.value = params.keyword;
         if (deptSelect && params.department) deptSelect.value = params.department;
 
         const listBody = document.getElementById('admin-users-list');
@@ -243,9 +249,9 @@ const pages = {
                 <td>${utils.formatPhoneNumber(u.phone_number)}</td>
                 <td>
                     <select onchange="pages.handleRoleUpdate(${u.id}, this.value)" ${u.id === state.user.id ? 'disabled' : ''}>
-                        <option value="pending" ${u.role === 'pending' ? 'selected' : ''}>승인대기</option>
-                        <option value="staff" ${u.role === 'staff' ? 'selected' : ''}>일반회원</option>
-                        <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>관리자</option>
+                        <option value="PENDING" ${u.role === 'PENDING' ? 'selected' : ''}>승인대기</option>
+                        <option value="STAFF" ${u.role === 'STAFF' ? 'selected' : ''}>일반회원</option>
+                        <option value="ADMIN" ${u.role === 'ADMIN' ? 'selected' : ''}>관리자</option>
                     </select>
                 </td>
                 <td>${u.is_active ? '<span class="status-badge success">활성</span>' : '<span class="status-badge error">비활성</span>'}</td>
@@ -256,11 +262,11 @@ const pages = {
     // --- Event Handlers ---
 
     handleAdminSearch() {
-        const query = document.getElementById('admin-search-query').value;
+        const keyword = document.getElementById('admin-search-query').value;
         const department = document.getElementById('admin-filter-dept').value;
         
         const params = new URLSearchParams();
-        if (query) params.set('query', query);
+        if (keyword) params.set('keyword', keyword);
         if (department) params.set('department', department);
         
         const queryString = params.toString();
@@ -274,7 +280,7 @@ const pages = {
 
     async handleRoleUpdate(userId, newRole) {
         try {
-            await apis.adminUpdateUserRole({ user_id: userId, new_role: newRole });
+            await apis.adminUpdateUserRole(userId, newRole);
             utils.showAlert('권한이 변경되었습니다.', 'success');
             this.handleAdminSearch();
         } catch (err) {
@@ -284,13 +290,13 @@ const pages = {
 
     async handleUpdateMe(e) {
         e.preventDefault();
-        const data = {
+        const profileUpdate = {
             department: document.getElementById('update-me-department').value,
             phone_number: document.getElementById('update-me-phone').value.replace(/[^\d]/g, '')
         };
 
         try {
-            await apis.updateMe(data);
+            await apis.updateMe(profileUpdate);
             utils.showAlert('회원 정보가 수정되었습니다.', 'success');
             await checkAuth(); // state 갱신 (app.js)
             this.renderMyPage();
@@ -303,13 +309,13 @@ const pages = {
 
     async handleUpdatePassword(e) {
         e.preventDefault();
-        const data = {
+        const passwordUpdate = {
             current_password: document.getElementById('old-password').value,
             new_password: document.getElementById('new-password').value
         };
 
         try {
-            await apis.updatePassword(data);
+            await apis.updatePassword(passwordUpdate);
             utils.showAlert('비밀번호가 변경되었습니다.', 'success');
             e.target.reset();
         } catch (err) {

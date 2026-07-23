@@ -5,10 +5,6 @@ import re
 from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, Field, field_validator
 
-git switch main
-git pull origin main
-git switch -c feature/practice-list-users
-
 router = APIRouter(
     prefix="/practice_api",
     tags=["practice"],
@@ -167,7 +163,17 @@ async def get_user(user_id: int) -> dict:
     status_code=status.HTTP_201_CREATED,
     summary="회원 등록",
 )
+async def create_user(payload: UserCreate) -> dict:
+    if email_exists(payload.email):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="이미 등록된 이메일입니다.",
+        )
 
+    new_user = {
+        "id": max((user["id"] for user in user_list), default=0) + 1,
+        **payload.model_dump(),
+    }
     user_list.append(new_user)
     return new_user
 

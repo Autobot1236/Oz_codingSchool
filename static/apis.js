@@ -3,7 +3,9 @@
  * 각 함수는 백엔드 API 명세의 요구사항 ID를 주석으로 포함합니다.
  */
 
-const API_BASE = '/api/v1';
+// User/Auth API는 팀 계약에 따라 /api/v1 접두사를 사용합니다.
+const API_BASE = '';
+const USER_AUTH_API_BASE = '/api/v1';
 
 const apis = {
     isRefreshing: false,
@@ -25,12 +27,16 @@ const apis = {
         }
 
         try {
-            const response = await fetch(`${API_BASE}${url}`, { ...options, headers });
+            const response = await fetch(`${API_BASE}${url}`, {
+                credentials: 'same-origin',
+                ...options,
+                headers
+            });
             
             // 401 Unauthorized 처리 (토큰 만료 시 리프레시 시도)
             if (response.status === 401) {
                 // 로그인 요청에서 401은 리프레시 대상이 아님
-                if (url === '/users/login') {
+                if (url === `${USER_AUTH_API_BASE}/auth/login`) {
                     return { status: 401 };
                 }
                 
@@ -52,14 +58,16 @@ const apis = {
 
                 this.isRefreshing = true;
                 try {
-                    const refreshResponse = await fetch(`${API_BASE}/users/refresh`, {
+                    const refreshResponse = await fetch(`${API_BASE}${USER_AUTH_API_BASE}/auth/refresh`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' }
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin'
                     });
 
                     if (refreshResponse.ok) {
-                        const data = await refreshResponse.json();
-                        state.token = data.access_token;
+                        // 백엔드 응답 형태: { access_token, token_type, expires_in }
+                        const body = await refreshResponse.json();
+                        state.token = body.access_token;
                         localStorage.setItem('token', state.token);
                         
                         this.isRefreshing = false;
@@ -115,7 +123,7 @@ const apis = {
             if (response.status === 204) return null;
             return await response.json();
         } catch (err) {
-            if (url !== '/users/login' && !skipAlert) {
+            if (url !== `${USER_AUTH_API_BASE}/auth/login` && !skipAlert) {
                 utils.showAlert(err.message, 'error', '오류');
             }
             throw err;
@@ -123,12 +131,14 @@ const apis = {
     },
 
     // --- Auth & Users ---
+    // User/Auth API는 /api/v1 아래의 auth/users 리소스로 통일합니다.
+
     /**
      * 회원가입
      * [REQ-USER-001] 사내 구성원은 이메일, 비밀번호, 이름, 소속 부서, 성별, 전화번호를 입력하여 회원가입을 할 수 있다.
      */
     async signup(userData) {
-        return await this.request('/users/signup', {
+        return await this.request(`${USER_AUTH_API_BASE}/auth/signup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(userData)
@@ -138,14 +148,13 @@ const apis = {
     /**
      * 로그인
      * [REQ-USER-002] 가입된 이메일과 비밀번호로 로그인을 할 수 있다.
+     * 백엔드 LoginRequest는 JSON Body({ email, password })를 받습니다 (OAuth2 form 아님).
      */
     async login(email, password) {
-        const formData = new FormData();
-        formData.append('username', email);
-        formData.append('password', password);
-        return await this.request('/users/login', {
+        return await this.request(`${USER_AUTH_API_BASE}/auth/login`, {
             method: 'POST',
-            body: formData
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
         }, true);
     },
 
@@ -154,9 +163,10 @@ const apis = {
      * [NFR-USER-001] 로그인 성공 시 Access Token(JSON Body)과 Refresh Token(HTTP-only Cookie)이 발급된다.
      */
     async refresh() {
-        return await fetch(`${API_BASE}/users/refresh`, {
+        return await fetch(`${API_BASE}${USER_AUTH_API_BASE}/auth/refresh`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin'
         });
     },
 
@@ -165,7 +175,7 @@ const apis = {
      * [REQ-USER-003] 로그인된 사용자는 로그아웃을 할 수 있다.
      */
     async logout() {
-        return await this.request('/users/logout', { method: 'POST' });
+        return await this.request(`${USER_AUTH_API_BASE}/auth/logout`, { method: 'POST' });
     },
 
     /**
@@ -173,7 +183,7 @@ const apis = {
      * [REQ-USER-006] 로그인된 사용자는 본인의 정보를 조회할 수 있다.
      */
     async getMe() {
-        return await this.request('/users/me');
+        return await this.request(`${USER_AUTH_API_BASE}/users/me`);
     },
 
     /**
@@ -181,7 +191,7 @@ const apis = {
      * [REQ-USER-007] 로그인된 사용자는 본인의 정보(부서, 전화번호)를 수정할 수 있다.
      */
     async updateMe(userData) {
-        return await this.request('/users/me', {
+        return await this.request(`${USER_AUTH_API_BASE}/users/me`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(userData)
@@ -193,7 +203,7 @@ const apis = {
      * [REQ-USER-008] 로그인된 사용자는 본인의 비밀번호를 변경할 수 있다.
      */
     async updatePassword(passwordData) {
-        return await this.request('/users/me/password', {
+        return await this.request(`${USER_AUTH_API_BASE}/users/me/password`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(passwordData)
@@ -205,7 +215,7 @@ const apis = {
      * [REQ-USER-009] 로그인된 사용자는 회원 탈퇴를 할 수 있다.
      */
     async deleteMe() {
-        return await this.request('/users/me', { method: 'DELETE' });
+        return await this.request(`${USER_AUTH_API_BASE}/users/me`, { method: 'DELETE' });
     },
 
     // --- Patients ---
@@ -314,18 +324,18 @@ const apis = {
      */
     async adminGetUsers(params = {}) {
         const query = new URLSearchParams(params).toString();
-        return await this.request(`/admin/users${query ? `?${query}` : ''}`);
+        return await this.request(`${USER_AUTH_API_BASE}/users${query ? `?${query}` : ''}`);
     },
 
     /**
      * 유저 권한 수정 (관리자 전용)
      * [REQ-USER-005] 관리자 권한을 가진 유저는 다른 유저의 권한을 수정할 수 있다.
      */
-    async adminUpdateUserRole(roleData) {
-        return await this.request('/admin/users/role', {
+    async adminUpdateUserRole(userId, role) {
+        return await this.request(`${USER_AUTH_API_BASE}/users/${userId}/role`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(roleData)
+            body: JSON.stringify({ role })
         });
     }
 };
