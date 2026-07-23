@@ -1,22 +1,46 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.databases import async_get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.patient import (
+    PatientCreate,
     PatientDetailResponse,
     PatientListQuery,
     PatientListResponse,
+    PatientResponse,
 )
 from app.services import patient_service
 
 router = APIRouter(prefix="/api/v1/patients", tags=["patients"])
 
 
-@router.get("", response_model=PatientListResponse, summary="환자 목록 조회")
+@router.post(
+    "",
+    response_model=PatientResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="환자 정보 등록",
+)
+async def create_patient(
+    payload: PatientCreate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(async_get_db)],
+) -> PatientResponse:
+    return await patient_service.create_patient(
+        session=session,
+        payload=payload,
+        current_user=current_user,
+    )
+
+
+@router.get(
+    "",
+    response_model=PatientListResponse,
+    summary="환자 목록 조회",
+)
 async def list_patients(
     query: Annotated[PatientListQuery, Query()],
     _current_user: Annotated[User, Depends(get_current_user)],
@@ -37,3 +61,19 @@ async def get_patient_detail(
 ) -> PatientDetailResponse:
     return await patient_service.get_patient_detail(session, patient_id)
 
+
+@router.delete(
+    "/{patient_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="환자 정보 삭제",
+)
+async def delete_patient(
+    patient_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(async_get_db)],
+) -> None:
+    await patient_service.delete_patient(
+        session=session,
+        patient_id=patient_id,
+        current_user=current_user,
+    )
