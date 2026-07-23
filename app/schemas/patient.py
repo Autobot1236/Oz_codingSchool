@@ -50,3 +50,18 @@ class PatientListResponse(BaseModel):
     page: int
     size: int
     total: int
+
+
+class PatientDetailData(BaseModel):
+    id: int
+    name: str
+    age: int
+    gender: Gender | None
+    phone_number: str
+    created_at: datetime
+    updated_at: datetime | None
+
+
+class PatientDetailResponse(BaseModel):
+    data: PatientDetailData
+

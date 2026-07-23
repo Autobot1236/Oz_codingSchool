@@ -37,3 +37,11 @@ async def list_patients(
     )
 
     return list(patients_result.scalars().all()), total_result.scalar_one()
+
+
+async def get_patient_by_id(
+    session: AsyncSession,
+    patient_id: int,
+) -> Patient | None:
+    result = await session.execute(select(Patient).where(Patient.id == patient_id))
+    return result.scalar_one_or_none()
