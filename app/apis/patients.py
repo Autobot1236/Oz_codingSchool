@@ -1,23 +1,28 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.databases import async_get_db
 from app.core.security import get_current_user
-from app.models.enums import Role
-from app.models.patient import Patient
 from app.models.user import User
-from app.schemas.patient import PatientDetailData, PatientDetailResponse
+from app.schemas.patient import (
+    PatientDetailResponse,
+    PatientListQuery,
+    PatientListResponse,
+)
+from app.services import patient_service
 
 router = APIRouter(prefix="/api/v1/patients", tags=["patients"])
 
 
-def ensure_staff_or_admin(current_user: User) -> None:
-    if current_user.role not in {Role.STAFF, Role.ADMIN}:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="환자 정보에 접근할 권한이 없습니다.",
-        )
+@router.get("", response_model=PatientListResponse, summary="환자 목록 조회")
+async def list_patients(
+    query: Annotated[PatientListQuery, Query()],
+    _current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(async_get_db)],
+) -> PatientListResponse:
+    return await patient_service.list_patients(session, query)
 
 
 @router.get(
@@ -27,28 +32,8 @@ def ensure_staff_or_admin(current_user: User) -> None:
 )
 async def get_patient_detail(
     patient_id: int,
-    session: AsyncSession = Depends(async_get_db),
-    current_user: User = Depends(get_current_user),
+    _current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(async_get_db)],
 ) -> PatientDetailResponse:
-    ensure_staff_or_admin(current_user)
-
-    result = await session.execute(select(Patient).where(Patient.id == patient_id))
-    patient = result.scalar_one_or_none()
-    if patient is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="환자 정보를 찾을 수 없습니다.",
-        )
-
-    return PatientDetailResponse(
-        data=PatientDetailData(
-            id=patient.id,
-            name=patient.name,
-            age=patient.age,
-            gender=patient.gender,
-            phone_number=patient.phone,
-            created_at=patient.created_at,
-            updated_at=patient.updated_at,
-        )
-    )
+    return await patient_service.get_patient_detail(session, patient_id)
 
