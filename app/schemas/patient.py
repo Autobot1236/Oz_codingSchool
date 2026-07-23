@@ -1,9 +1,59 @@
+import re
 from datetime import datetime
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from app.models.enums import Gender
+
+
+class PatientCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    age: int = Field(ge=0, le=150)
+    gender: Gender
+    phone_number: str
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, name: str) -> str:
+        normalized_name = name.strip()
+
+        if not 1 <= len(normalized_name) <= 30:
+            raise ValueError(
+                "name은 공백 제거 후 1자 이상 30자 이하여야 합니다."
+            )
+
+        return normalized_name
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone_number(cls, phone_number: str) -> str:
+        normalized_phone_number = phone_number.strip()
+
+        if re.fullmatch(r"\d{10,11}", normalized_phone_number) is None:
+            raise ValueError(
+                "phone_number는 하이픈 없는 숫자 10~11자리여야 합니다."
+            )
+
+        return normalized_phone_number
+
+
+class PatientResponse(BaseModel):
+    id: int
+    name: str
+    age: int
+    gender: Gender
+    phone_number: str
+    created_at: datetime
+    updated_at: datetime | None
 
 
 class PatientListQuery(BaseModel):
@@ -21,6 +71,7 @@ class PatientListQuery(BaseModel):
     def normalize_name(cls, name: str | None) -> str | None:
         if name is None:
             return None
+
         normalized_name = name.strip()
         return normalized_name or None
 
@@ -31,7 +82,10 @@ class PatientListQuery(BaseModel):
             and self.max_age is not None
             and self.min_age > self.max_age
         ):
-            raise ValueError("min_age는 max_age보다 클 수 없습니다.")
+            raise ValueError(
+                "min_age는 max_age보다 클 수 없습니다."
+            )
+
         return self
 
 
@@ -64,4 +118,3 @@ class PatientDetailData(BaseModel):
 
 class PatientDetailResponse(BaseModel):
     data: PatientDetailData
-
