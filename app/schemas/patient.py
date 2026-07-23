@@ -84,6 +84,20 @@ class PatientResponse(BaseModel):
     updated_at: datetime | None
 
 
+class PatientDetailData(BaseModel):
+    id: int
+    name: str
+    age: int
+    gender: Gender | None
+    phone_number: str
+    created_at: datetime
+    updated_at: datetime | None
+
+
+class PatientDetailResponse(BaseModel):
+    data: PatientDetailData
+
+
 class PatientListQuery(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

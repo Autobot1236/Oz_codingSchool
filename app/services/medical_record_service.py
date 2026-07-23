@@ -14,10 +14,12 @@ from app.models.xray_image import XrayImage
 from app.repositories import medical_record_repository, patient_repository
 from app.schemas.medical_record import (
     MedicalRecordCreateResponse,
+    MedicalRecordDetailData,
     MedicalRecordDetailResponse,
     MedicalRecordListItem,
     MedicalRecordListQuery,
     MedicalRecordListResponse,
+    XrayImageResponse,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -227,13 +229,22 @@ async def get_medical_record_detail(
             detail="medical_record_not_found",
         )
 
-    xray_image = medical_record.xray_images[0]
     return MedicalRecordDetailResponse(
-        id=medical_record.id,
-        patient_id=medical_record.patient_id,
-        chart_number=medical_record.chart_number,
-        symptoms=medical_record.symptoms,
-        xray_image_url=xray_image.image_url,
-        shooting_datetime=xray_image.shooting_datetime,
-        created_at=medical_record.created_at,
+        data=MedicalRecordDetailData(
+            id=medical_record.id,
+            patient_id=medical_record.patient_id,
+            chart_number=medical_record.chart_number,
+            symptoms=medical_record.symptoms,
+            xray_images=[
+                XrayImageResponse(
+                    id=xray_image.id,
+                    image_url=xray_image.image_url,
+                    shooting_datetime=xray_image.shooting_datetime,
+                    created_at=xray_image.created_at,
+                )
+                for xray_image in medical_record.xray_images
+            ],
+            created_at=medical_record.created_at,
+            updated_at=medical_record.updated_at,
+        )
     )

@@ -8,6 +8,7 @@ from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.patient import (
     PatientCreate,
+    PatientDetailResponse,
     PatientListQuery,
     PatientListResponse,
     PatientResponse,
@@ -51,14 +52,14 @@ async def list_patients(
 
 @router.get(
     "/{patient_id}",
-    response_model=PatientResponse,
+    response_model=PatientDetailResponse,
     summary="환자 상세 조회",
 )
 async def get_patient_detail(
     patient_id: int,
     _current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(async_get_db)],
-) -> PatientResponse:
+) -> PatientDetailResponse:
     return await patient_service.get_patient_detail(session, patient_id)
 
 

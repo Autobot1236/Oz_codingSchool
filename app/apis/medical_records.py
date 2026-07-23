@@ -1,10 +1,20 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.databases import async_get_db
 from app.core.security import get_current_user
+from app.models.enums import Role
 from app.models.user import User
 from app.schemas.medical_record import (
     MedicalRecordCreateResponse,
@@ -15,6 +25,14 @@ from app.schemas.medical_record import (
 from app.services import medical_record_service
 
 router = APIRouter(prefix="/api/v1", tags=["medical-records"])
+
+
+def ensure_staff_or_admin(current_user: User) -> None:
+    if current_user.role not in {Role.STAFF, Role.ADMIN}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="진료기록에 접근할 권한이 없습니다.",
+        )
 
 
 @router.post(
@@ -66,9 +84,10 @@ async def list_medical_records(
 )
 async def get_medical_record_detail(
     record_id: int,
-    _current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(async_get_db)],
 ) -> MedicalRecordDetailResponse:
+    ensure_staff_or_admin(current_user)
     return await medical_record_service.get_medical_record_detail(
         session=session,
         record_id=record_id,
