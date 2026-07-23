@@ -35,7 +35,8 @@ const pages = {
     },
 
     async renderPatients(params = {}) {
-        const patients = await apis.getPatients(params);
+        const patientResponse = await apis.getPatients(params);
+        const patients = patientResponse.patients;
         const html = await utils.loadTemplate('patients');
         if (state.currentPage !== '/patients') return;
         const app = document.getElementById('app');
@@ -81,7 +82,8 @@ const pages = {
 
     async renderPatientDetail(patientId) {
         const patient = await apis.getPatient(patientId);
-        const records = await apis.getPatientMedicalRecords(patientId);
+        const recordResponse = await apis.getPatientMedicalRecords(patientId);
+        const records = recordResponse.records;
         const html = await utils.loadTemplate('patient-detail');
         if (!state.currentPage.startsWith('/patients/')) return;
         const app = document.getElementById('app');
@@ -415,13 +417,12 @@ const pages = {
     async handleRecordCreate(e, patientId) {
         e.preventDefault();
         const formData = new FormData();
-        formData.append('patient_id', patientId);
         formData.append('chart_number', document.getElementById('chart_number').value);
         formData.append('symptoms', document.getElementById('symptoms').value);
         formData.append('xray_image', document.getElementById('xray_image').files[0]);
 
         try {
-            await apis.createMedicalRecord(formData);
+            await apis.createMedicalRecord(patientId, formData);
             utils.showAlert('진료 기록이 등록되었습니다.', 'success');
             navigate(`/patients/${patientId}`);
         } catch (err) {

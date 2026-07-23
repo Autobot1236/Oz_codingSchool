@@ -16,6 +16,7 @@ from app.schemas.patient import (
     PatientListQuery,
     PatientListResponse,
     PatientResponse,
+    PatientUpdateRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,6 @@ async def create_patient(
         gender=payload.gender,
         phone=payload.phone_number,
     )
-
     patient_repository.add_patient(session, patient)
 
     try:
@@ -107,17 +107,12 @@ async def get_patient_detail(
     session: AsyncSession,
     patient_id: int,
 ) -> PatientDetailResponse:
-    patient = await patient_repository.get_patient_by_id(
-        session,
-        patient_id,
-    )
-
+    patient = await patient_repository.get_patient_by_id(session, patient_id)
     if patient is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="환자 정보를 찾을 수 없습니다.",
         )
-
     return PatientDetailResponse(
         data=PatientDetailData(
             id=patient.id,
@@ -131,6 +126,57 @@ async def get_patient_detail(
     )
 
 
+async def update_patient(
+    session: AsyncSession,
+    patient_id: int,
+    payload: PatientUpdateRequest,
+    current_user: User,
+) -> PatientResponse:
+    require_medical_department(current_user)
+
+    if not payload.model_fields_set:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="update_fields_required",
+        )
+
+    patient = await patient_repository.get_patient_by_id(session, patient_id)
+    if patient is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="patient_not_found",
+        )
+
+    if "phone_number" in payload.model_fields_set:
+        patient_with_phone_number = (
+            await patient_repository.get_patient_by_phone_number(
+                session,
+                payload.phone_number,
+            )
+        )
+        if (
+            patient_with_phone_number is not None
+            and patient_with_phone_number.id != patient.id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="phone_number_already_exists",
+            )
+        patient.phone = payload.phone_number
+
+    if "name" in payload.model_fields_set:
+        patient.name = payload.name
+
+    try:
+        await session.commit()
+        await session.refresh(patient)
+    except Exception:
+        await session.rollback()
+        raise
+
+    return to_patient_response(patient)
+
+
 async def delete_patient(
     session: AsyncSession,
     patient_id: int,
@@ -138,24 +184,17 @@ async def delete_patient(
 ) -> None:
     require_medical_department(current_user)
 
-    patient = await patient_repository.get_patient_by_id(
-        session,
-        patient_id,
-    )
-
+    patient = await patient_repository.get_patient_by_id(session, patient_id)
     if patient is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="patient_not_found",
         )
 
-    xray_image_urls = (
-        await patient_repository.list_patient_xray_image_urls(
-            session,
-            patient_id,
-        )
+    xray_image_urls = await patient_repository.list_patient_xray_image_urls(
+        session,
+        patient_id,
     )
-
     await patient_repository.delete_patient(session, patient)
 
     try:
@@ -170,22 +209,15 @@ async def delete_patient(
 
 def delete_xray_file_safely(image_url: str) -> None:
     relative_path = image_url.lstrip("/")
-
     if relative_path.startswith("media/xray/"):
-        relative_path = relative_path.removeprefix(
-            "media/xray/"
-        )
+        relative_path = relative_path.removeprefix("media/xray/")
 
-    candidate_path = (
-        XRAY_MEDIA_ROOT / relative_path
-    ).resolve()
-
+    candidate_path = (XRAY_MEDIA_ROOT / relative_path).resolve()
     try:
         candidate_path.relative_to(XRAY_MEDIA_ROOT)
     except ValueError:
         logger.warning(
-            "X-Ray 파일 삭제를 건너뜁니다. "
-            "허용된 경로 밖입니다: %s",
+            "X-Ray 파일 삭제를 건너뜁니다. 허용된 경로 밖입니다: %s",
             image_url,
         )
         return

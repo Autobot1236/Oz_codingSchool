@@ -12,6 +12,7 @@ from app.schemas.patient import (
     PatientListQuery,
     PatientListResponse,
     PatientResponse,
+    PatientUpdateRequest,
 )
 from app.services import patient_service
 
@@ -60,6 +61,25 @@ async def get_patient_detail(
     session: Annotated[AsyncSession, Depends(async_get_db)],
 ) -> PatientDetailResponse:
     return await patient_service.get_patient_detail(session, patient_id)
+
+
+@router.patch(
+    "/{patient_id}",
+    response_model=PatientResponse,
+    summary="환자 정보 수정",
+)
+async def update_patient(
+    patient_id: int,
+    payload: PatientUpdateRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(async_get_db)],
+) -> PatientResponse:
+    return await patient_service.update_patient(
+        session=session,
+        patient_id=patient_id,
+        payload=payload,
+        current_user=current_user,
+    )
 
 
 @router.delete(

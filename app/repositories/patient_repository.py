@@ -27,16 +27,11 @@ async def list_patients(
     conditions = []
 
     if name is not None:
-        conditions.append(
-            Patient.name.contains(name, autoescape=True)
-        )
-
+        conditions.append(Patient.name.contains(name, autoescape=True))
     if gender is not None:
         conditions.append(Patient.gender == gender)
-
     if min_age is not None:
         conditions.append(Patient.age >= min_age)
-
     if max_age is not None:
         conditions.append(Patient.age <= max_age)
 
@@ -47,7 +42,6 @@ async def list_patients(
         .offset((page - 1) * size)
         .limit(size)
     )
-
     total_result = await session.execute(
         select(func.count(Patient.id)).where(*conditions)
     )
@@ -65,7 +59,16 @@ async def get_patient_by_id(
     result = await session.execute(
         select(Patient).where(Patient.id == patient_id)
     )
+    return result.scalar_one_or_none()
 
+
+async def get_patient_by_phone_number(
+    session: AsyncSession,
+    phone_number: str,
+) -> Patient | None:
+    result = await session.execute(
+        select(Patient).where(Patient.phone == phone_number)
+    )
     return result.scalar_one_or_none()
 
 
@@ -81,7 +84,6 @@ async def list_patient_xray_image_urls(
         )
         .where(MedicalRecord.patient_id == patient_id)
     )
-
     return list(result.scalars().all())
 
 

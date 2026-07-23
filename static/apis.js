@@ -6,6 +6,7 @@
 // User/Auth API는 팀 계약에 따라 /api/v1 접두사를 사용합니다.
 const API_BASE = '';
 const USER_AUTH_API_BASE = '/api/v1';
+const PATIENT_MEDICAL_API_BASE = '/api/v1';
 
 const apis = {
     isRefreshing: false,
@@ -225,7 +226,7 @@ const apis = {
      * [REQ-PTNT-001] 사내 의료인 역할을 가진 유저만 환자를 신규 등록할 수 있다.
      */
     async createPatient(patientData) {
-        return await this.request('/patients', {
+        return await this.request(`${PATIENT_MEDICAL_API_BASE}/patients`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(patientData)
@@ -238,7 +239,7 @@ const apis = {
      */
     async getPatients(params = {}) {
         const query = new URLSearchParams(params).toString();
-        return await this.request(`/patients${query ? `?${query}` : ''}`);
+        return await this.request(`${PATIENT_MEDICAL_API_BASE}/patients${query ? `?${query}` : ''}`);
     },
 
     /**
@@ -246,7 +247,7 @@ const apis = {
      * [REQ-PTNT-003] 특정 환자의 상세 정보를 조회할 수 있다.
      */
     async getPatient(patientId) {
-        return await this.request(`/patients/${patientId}`);
+        return await this.request(`${PATIENT_MEDICAL_API_BASE}/patients/${patientId}`);
     },
 
     /**
@@ -254,7 +255,7 @@ const apis = {
      * [REQ-PTNT-004] 특정 환자의 정보를 수정할 수 있다.
      */
     async updatePatient(patientId, patientData) {
-        return await this.request(`/patients/${patientId}`, {
+        return await this.request(`${PATIENT_MEDICAL_API_BASE}/patients/${patientId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(patientData)
@@ -266,7 +267,7 @@ const apis = {
      * [REQ-PTNT-005] 특정 환자 정보를 삭제할 수 있다.
      */
     async deletePatient(patientId) {
-        return await this.request(`/patients/${patientId}`, { method: 'DELETE' });
+        return await this.request(`${PATIENT_MEDICAL_API_BASE}/patients/${patientId}`, { method: 'DELETE' });
     },
 
     // --- Medical Records ---
@@ -275,8 +276,8 @@ const apis = {
      * 진료 기록 등록
      * [REQ-MDR-001] 사내 의료인 역할을 가진 유저만 환자의 진료 기록을 등록할 수 있다.
      */
-    async createMedicalRecord(formData) {
-        return await this.request('/medical-records', {
+    async createMedicalRecord(patientId, formData) {
+        return await this.request(`${PATIENT_MEDICAL_API_BASE}/patients/${patientId}/medical-records`, {
             method: 'POST',
             body: formData
         });
@@ -287,7 +288,7 @@ const apis = {
      * [REQ-MDR-002] 특정 환자의 진료 기록 목록을 조회할 수 있다.
      */
     async getPatientMedicalRecords(patientId) {
-        return await this.request(`/patients/${patientId}/medical-records`);
+        return await this.request(`${PATIENT_MEDICAL_API_BASE}/patients/${patientId}/medical-records`);
     },
 
     /**
@@ -295,7 +296,7 @@ const apis = {
      * [REQ-MDR-003] 특정 진료 기록의 상세 내용을 조회할 수 있다.
      */
     async getMedicalRecord(recordId) {
-        return await this.request(`/medical-records/${recordId}`);
+        return await this.request(`${PATIENT_MEDICAL_API_BASE}/medical-records/${recordId}`);
     },
 
     // --- AI Prediction ---
