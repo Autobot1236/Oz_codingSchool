@@ -260,6 +260,7 @@ __table_args__ = (
 | `403` | `prediction_access_denied` | `Role.PENDING` 사용자의 예측 실행·목록 접근 | 관리자 승인 후 이용 가능 안내 |
 | `404` | `medical_record_not_found` | `record_id`에 해당하는 진료기록 없음 | 진료기록을 찾을 수 없음 안내 |
 | `404` | `xray_image_not_found` | 예측에 사용할 X-Ray DB 정보 또는 파일 없음 | X-Ray 등록 상태 확인 안내 |
+| `422` | `invalid_xray_image` | 저장된 X-Ray 파일을 디코딩할 수 없음 | X-Ray 파일을 다시 등록하도록 안내 |
 | `422` | FastAPI 검증 오류 | 잘못된 `record_id`, `page`, `size` | 입력값 확인 안내 |
 | `503` | `model_unavailable` | 모델 의존성·파일·가중치 로딩 실패 | 잠시 후 재시도 안내 |
 | `500` | `prediction_failed` | 추론 또는 결과 저장 중 예상하지 못한 실패 | 일시적 오류 및 재시도 안내 |

@@ -146,7 +146,10 @@ const pages = {
     },
 
     async renderRecordDetail(recordId) {
-        const record = await apis.getMedicalRecord(recordId);
+        // 진료기록 상세 API는 { data: { ... } } envelope를 반환한다.
+        const detailResponse = await apis.getMedicalRecord(recordId);
+        const record = detailResponse.data;
+        const xrayImage = record.xray_images?.[0];
         let predictions = [];
         let predictionLoadError = null;
         try {
@@ -154,7 +157,7 @@ const pages = {
             const predictionPage = await apis.getMedicalRecordPredictions(recordId);
             predictions = predictionPage.predictions;
         } catch (error) {
-            // AI API가 아직 병합 전이어도 진료기록 상세 화면 자체는 유지한다.
+            // 예측 결과를 가져오지 못해도 진료기록 상세 화면 자체는 유지한다.
             predictionLoadError = error;
         }
         const html = await utils.loadTemplate('record-detail');
@@ -165,7 +168,7 @@ const pages = {
         document.getElementById('chart-number').innerText = record.chart_number;
         document.getElementById('symptoms-text').innerText = record.symptoms;
         document.getElementById('created-at').innerText = new Date(record.created_at).toLocaleString();
-        document.getElementById('xray-img').src = record.xray_image_url;
+        document.getElementById('xray-img').src = xrayImage?.image_url || '';
         
         document.getElementById('predict-btn').onclick = () => this.handlePredict(recordId);
         document.getElementById('back-to-patient-btn').onclick = () => navigate(`/patients/${record.patient_id}`);

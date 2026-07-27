@@ -23,6 +23,7 @@ XRAY_MEDIA_ROOT = (PROJECT_ROOT / "media" / "xray").resolve()
 PREDICTION_ACCESS_DENIED_DETAIL = "prediction_access_denied"
 MEDICAL_RECORD_NOT_FOUND_DETAIL = "medical_record_not_found"
 XRAY_IMAGE_NOT_FOUND_DETAIL = "xray_image_not_found"
+INVALID_XRAY_IMAGE_DETAIL = "invalid_xray_image"
 MODEL_UNAVAILABLE_DETAIL = "model_unavailable"
 PREDICTION_FAILED_DETAIL = "prediction_failed"
 
@@ -247,6 +248,13 @@ async def predict_pneumonia(
             predict_xray,
             image_path,
         )
+    except ValueError as exc:
+        # worker.model converts image decoding failures to ValueError.
+        # This is an invalid uploaded X-Ray, not an internal inference error.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=INVALID_XRAY_IMAGE_DETAIL,
+        ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
