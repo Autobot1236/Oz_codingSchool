@@ -98,6 +98,9 @@ const apis = {
                     error = { detail: '서버 응답 처리 중 오류가 발생했습니다.' };
                 }
                 
+                const detailCode = typeof error.detail === 'string'
+                    ? error.detail
+                    : error.detail?.code;
                 let msg = error.detail || '요청 중 오류가 발생했습니다.';
                 if (Array.isArray(msg)) {
                     msg = msg.map(e => {
@@ -107,6 +110,9 @@ const apis = {
                         if (text === 'Field required') text = '필수 입력 항목입니다.';
                         return text;
                     }).join(', ');
+                } else if (msg && typeof msg === 'object') {
+                    // 비밀번호 변경·토큰 갱신 API는 { code, message } detail을 반환한다.
+                    msg = msg.message || msg.code || '요청 중 오류가 발생했습니다.';
                 }
 
                 // 6일차 AI 예측 API의 detail 코드를 화면에서 이해 가능한 문구로 바꾼다.
@@ -125,7 +131,7 @@ const apis = {
                 const passwordErrorMessage = "비밀번호는 대소문자, 특수문자, 숫자를 각 1개씩 포함한 8자리 이상이어야 합니다.";
                 if (msg.includes(passwordErrorMessage)) {
                     msg = passwordErrorMessage;
-                } else if (response.status >= 500 && !detailMessages[error.detail]) {
+                } else if (response.status >= 500 && !detailMessages[detailCode]) {
                     msg = "잠시후 다시 시도해주세요.";
                 }
 
