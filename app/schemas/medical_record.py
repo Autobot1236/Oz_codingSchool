@@ -53,3 +53,31 @@ class MedicalRecordListResponse(BaseModel):
 
 class MedicalRecordDetailResponse(BaseModel):
     data: MedicalRecordDetailData
+
+
+class PredictionListQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    page: int = Field(default=1, ge=1)
+    size: int = Field(default=10, ge=1, le=100)
+
+
+class PredictionItem(BaseModel):
+    id: int
+    record_id: int
+    is_pneumonia: bool
+    confidence: float = Field(ge=0.0, le=100.0)
+    heatmap_url: str | None
+    ai_model: str = Field(min_length=1, max_length=50)
+    created_at: datetime
+
+
+class PredictionResponse(PredictionItem):
+    cached: bool
+
+
+class PredictionListResponse(BaseModel):
+    predictions: list[PredictionItem]
+    page: int
+    size: int
+    total: int
