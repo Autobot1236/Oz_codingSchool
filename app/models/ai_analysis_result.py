@@ -4,7 +4,17 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Numeric, String, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db.databases import Base
@@ -15,6 +25,18 @@ if TYPE_CHECKING:
 
 class AIAnalysisResult(Base):
     __tablename__ = "ai_analysis_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "record_id",
+            "ai_model",
+            name="uq_ai_analysis_results_record_model",
+        ),
+        Index(
+            "ix_ai_analysis_results_record_created_at",
+            "record_id",
+            "created_at",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     record_id: Mapped[int] = mapped_column(
@@ -22,7 +44,7 @@ class AIAnalysisResult(Base):
     )
     is_pneumonia: Mapped[bool] = mapped_column(Boolean, nullable=False)
     confidence: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
-    heatmap_url: Mapped[str] = mapped_column(String(255), nullable=False)
+    heatmap_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     ai_model: Mapped[str] = mapped_column(String(50), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False
