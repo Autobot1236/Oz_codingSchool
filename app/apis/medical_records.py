@@ -6,6 +6,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Path,
     Query,
     UploadFile,
     status,
@@ -21,8 +22,11 @@ from app.schemas.medical_record import (
     MedicalRecordDetailResponse,
     MedicalRecordListQuery,
     MedicalRecordListResponse,
+    PredictionListQuery,
+    PredictionListResponse,
+    PredictionResponse,
 )
-from app.services import medical_record_service
+from app.services import medical_record_service, prediction_service
 
 router = APIRouter(prefix="/api/v1", tags=["medical-records"])
 
@@ -32,6 +36,14 @@ def ensure_staff_or_admin(current_user: User) -> None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="진료기록에 접근할 권한이 없습니다.",
+        )
+
+
+def ensure_prediction_access(current_user: User) -> None:
+    if current_user.role not in {Role.STAFF, Role.ADMIN}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=prediction_service.PREDICTION_ACCESS_DENIED_DETAIL,
         )
 
 
@@ -91,4 +103,42 @@ async def get_medical_record_detail(
     return await medical_record_service.get_medical_record_detail(
         session=session,
         record_id=record_id,
+    )
+
+
+@router.post(
+    "/medical-records/{record_id}/ai-predictions",
+    response_model=PredictionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="폐렴 예측 실행 또는 저장 결과 재사용",
+)
+async def predict_pneumonia(
+    record_id: Annotated[int, Path(ge=1)],
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(async_get_db)],
+) -> PredictionResponse:
+    ensure_prediction_access(current_user)
+    return await prediction_service.predict_pneumonia(
+        session=session,
+        record_id=record_id,
+    )
+
+
+@router.get(
+    "/medical-records/{record_id}/ai-predictions",
+    response_model=PredictionListResponse,
+    summary="폐렴 예측 결과 목록 조회",
+)
+async def list_predictions(
+    record_id: Annotated[int, Path(ge=1)],
+    query: Annotated[PredictionListQuery, Query()],
+    current_user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(async_get_db)],
+) -> PredictionListResponse:
+    ensure_prediction_access(current_user)
+    return await prediction_service.get_predictions(
+        session=session,
+        record_id=record_id,
+        page=query.page,
+        size=query.size,
     )

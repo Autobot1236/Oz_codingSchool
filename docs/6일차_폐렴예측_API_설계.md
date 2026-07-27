@@ -26,6 +26,14 @@
 
 ## 2. 요구사항 해석과 설계 결정
 
+### 2.0 통합 계약 결정
+
+초기 역할 가이드의 `/predict`, `/analyses` 경로는 담당자 간 계약을 병합하기 전 템플릿이다. DB·캐시 Service와 완료된 화면 호출을 대조한 결과, 최종 통합 경로는 두 기능 모두 `/ai-predictions`로 확정한다.
+
+- 실행: `POST /api/v1/medical-records/{record_id}/ai-predictions`
+- 목록: `GET /api/v1/medical-records/{record_id}/ai-predictions`
+- 목록 envelope: `{ "predictions": [...], "page": 1, "size": 10, "total": 0 }`
+
 ### 2.1 요구사항 매핑
 
 | 요구사항 | 설계 반영 |
@@ -97,8 +105,8 @@ MySQL
 
 | 계층 | 예정 파일 | 책임 |
 | --- | --- | --- |
-| API | `app/apis/predictions.py` | 라우팅, 인증 의존성, 상태 코드, 응답 모델 |
-| Schema | `app/schemas/prediction.py` | 요청·응답 및 목록 페이지네이션 검증 |
+| API | `app/apis/medical_records.py` | 라우팅, 인증 의존성, 상태 코드, 응답 모델 |
+| Schema | `app/schemas/medical_record.py` | 요청·응답 및 목록 페이지네이션 검증 |
 | Service | `app/services/prediction_service.py` | 권한, 캐시, X-Ray 파일 확인, Worker 호출, 예외 변환 |
 | Repository | `app/repositories/prediction_repository.py` | 예측 결과 조회·목록·저장 |
 | Worker | `worker/model.py` | 모델 로딩, 전처리, Simple CNN 추론 |
@@ -243,6 +251,20 @@ __table_args__ = (
 | --- | --- | --- | --- |
 | `REQ-PRED-001` | `POST` | `/api/v1/medical-records/{record_id}/ai-predictions` | 예측 실행 또는 캐시 결과 반환 |
 | `REQ-PRED-002` | `GET` | `/api/v1/medical-records/{record_id}/ai-predictions` | 예측 결과 목록 조회 |
+
+### 6.1 공통 오류 계약
+
+| 상태 | `detail` | 발생 조건 | 프론트 안내 |
+| ---: | --- | --- | --- |
+| `401` | 기존 인증 모듈 메시지 | Access Token 없음·만료·위조 또는 비활성 사용자 | 로그인 화면으로 이동하거나 재로그인 안내 |
+| `403` | `prediction_access_denied` | `Role.PENDING` 사용자의 예측 실행·목록 접근 | 관리자 승인 후 이용 가능 안내 |
+| `404` | `medical_record_not_found` | `record_id`에 해당하는 진료기록 없음 | 진료기록을 찾을 수 없음 안내 |
+| `404` | `xray_image_not_found` | 예측에 사용할 X-Ray DB 정보 또는 파일 없음 | X-Ray 등록 상태 확인 안내 |
+| `422` | FastAPI 검증 오류 | 잘못된 `record_id`, `page`, `size` | 입력값 확인 안내 |
+| `503` | `model_unavailable` | 모델 의존성·파일·가중치 로딩 실패 | 잠시 후 재시도 안내 |
+| `500` | `prediction_failed` | 추론 또는 결과 저장 중 예상하지 못한 실패 | 일시적 오류 및 재시도 안내 |
+
+오류 `detail`은 하나의 문자열이 하나의 의미만 갖도록 유지하며 내부 경로·모델 파일명·stack trace는 응답에 포함하지 않는다.
 
 ---
 
