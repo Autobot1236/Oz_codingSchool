@@ -453,7 +453,7 @@ class PredictionPublicContractTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 503)
         self.assertEqual(raised.exception.detail, "model_unavailable")
 
-    async def test_predict_pneumonia_maps_inference_error(self) -> None:
+    async def test_predict_pneumonia_maps_invalid_xray_image_error(self) -> None:
         session = AsyncMock()
 
         async def run_sync(function, *args):
@@ -510,8 +510,8 @@ class PredictionPublicContractTestCase(unittest.IsolatedAsyncioTestCase):
                         10,
                     )
 
-        self.assertEqual(raised.exception.status_code, 500)
-        self.assertEqual(raised.exception.detail, "prediction_failed")
+        self.assertEqual(raised.exception.status_code, 422)
+        self.assertEqual(raised.exception.detail, "invalid_xray_image")
 
     async def test_get_predictions_returns_page_contract(self) -> None:
         session = AsyncMock()
