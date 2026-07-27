@@ -2,6 +2,34 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ai_analysis_result import AIAnalysisResult
+from app.models.medical_record import MedicalRecord
+from app.models.xray_image import XrayImage
+
+
+async def get_medical_record_by_id(
+    session: AsyncSession,
+    record_id: int,
+) -> MedicalRecord | None:
+    result = await session.execute(
+        select(MedicalRecord).where(MedicalRecord.id == record_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_first_xray_image(
+    session: AsyncSession,
+    record_id: int,
+) -> XrayImage | None:
+    result = await session.execute(
+        select(XrayImage)
+        .where(XrayImage.record_id == record_id)
+        .order_by(
+            XrayImage.created_at.asc(),
+            XrayImage.id.asc(),
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 async def get_prediction_by_record_and_model(

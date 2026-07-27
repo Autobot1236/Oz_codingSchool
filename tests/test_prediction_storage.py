@@ -1,8 +1,12 @@
+import tempfile
 import unittest
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
 from app.models.ai_analysis_result import AIAnalysisResult
@@ -18,9 +22,7 @@ def make_prediction(prediction_id: int = 1) -> AIAnalysisResult:
         record_id=10,
         is_pneumonia=True,
         confidence=Decimal("94.28"),
-        heagit status --short
-git diff --cached --name-status
-git diff --cached --checktmap_url=None,
+        heatmap_url=None,
         ai_model=MODEL_NAME,
         created_at=NOW,
     )
@@ -236,6 +238,362 @@ class PredictionStorageServiceTestCase(unittest.IsolatedAsyncioTestCase):
             10,
             1,
             10,
+        )
+
+
+class PredictionPublicContractTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_predict_pneumonia_runs_first_prediction(self) -> None:
+        session = AsyncMock()
+        prediction = make_prediction()
+        xray_image = SimpleNamespace(image_url="/media/xray/test.png")
+
+        async def run_sync(function, *args):
+            return function(*args)
+
+        with tempfile.TemporaryDirectory(
+            dir=Path.cwd(),
+            prefix="prediction-test-",
+        ) as temporary_directory:
+            media_root = Path(temporary_directory).resolve()
+            image_path = media_root / "test.png"
+            image_path.write_bytes(b"synthetic-xray")
+
+            with (
+                patch.object(
+                    prediction_service,
+                    "XRAY_MEDIA_ROOT",
+                    media_root,
+                ),
+                patch(
+                    "app.services.prediction_service.prediction_repository."
+                    "get_medical_record_by_id",
+                    new_callable=AsyncMock,
+                    return_value=object(),
+                ),
+                patch(
+                    "app.services.prediction_service.get_cached_prediction",
+                    new_callable=AsyncMock,
+                    return_value=None,
+                ),
+                patch(
+                    "app.services.prediction_service.prediction_repository."
+                    "get_first_xray_image",
+                    new_callable=AsyncMock,
+                    return_value=xray_image,
+                ),
+                patch(
+                    "app.services.prediction_service.run_in_threadpool",
+                    new=run_sync,
+                ),
+                patch(
+                    "app.services.prediction_service.load_model",
+                    return_value=object(),
+                ) as load_model,
+                patch(
+                    "app.services.prediction_service.predict_xray",
+                    return_value=(True, 94.28),
+                ) as predict_xray,
+                patch(
+                    "app.services.prediction_service.save_prediction_result",
+                    new_callable=AsyncMock,
+                    return_value=(prediction, False),
+                ) as save_prediction,
+            ):
+                result = await prediction_service.predict_pneumonia(
+                    session,
+                    10,
+                )
+
+        self.assertFalse(result["cached"])
+        self.assertEqual(result["record_id"], 10)
+        self.assertEqual(result["confidence"], 94.28)
+        load_model.assert_called_once_with()
+        predict_xray.assert_called_once_with(image_path)
+        save_prediction.assert_awaited_once_with(
+            session,
+            record_id=10,
+            is_pneumonia=True,
+            confidence=94.28,
+            ai_model=MODEL_NAME,
+            heatmap_url=None,
+        )
+
+    async def test_predict_pneumonia_reuses_cached_result(self) -> None:
+        session = AsyncMock()
+        cached_prediction = make_prediction()
+
+        with (
+            patch(
+                "app.services.prediction_service.prediction_repository."
+                "get_medical_record_by_id",
+                new_callable=AsyncMock,
+                return_value=object(),
+            ),
+            patch(
+                "app.services.prediction_service.get_cached_prediction",
+                new_callable=AsyncMock,
+                return_value=cached_prediction,
+            ),
+            patch(
+                "app.services.prediction_service.prediction_repository."
+                "get_first_xray_image",
+                new_callable=AsyncMock,
+            ) as get_xray_image,
+            patch(
+                "app.services.prediction_service.predict_xray"
+            ) as predict_xray,
+        ):
+            result = await prediction_service.predict_pneumonia(
+                session,
+                10,
+            )
+
+        self.assertTrue(result["cached"])
+        self.assertEqual(result["id"], cached_prediction.id)
+        get_xray_image.assert_not_awaited()
+        predict_xray.assert_not_called()
+
+    async def test_predict_pneumonia_rejects_missing_record(self) -> None:
+        session = AsyncMock()
+        with patch(
+            "app.services.prediction_service.prediction_repository."
+            "get_medical_record_by_id",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await prediction_service.predict_pneumonia(session, 999)
+
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertEqual(
+            raised.exception.detail,
+            "medical_record_not_found",
+        )
+
+    async def test_predict_pneumonia_rejects_missing_xray(self) -> None:
+        session = AsyncMock()
+        with (
+            patch(
+                "app.services.prediction_service.prediction_repository."
+                "get_medical_record_by_id",
+                new_callable=AsyncMock,
+                return_value=object(),
+            ),
+            patch(
+                "app.services.prediction_service.get_cached_prediction",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "app.services.prediction_service.prediction_repository."
+                "get_first_xray_image",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await prediction_service.predict_pneumonia(session, 10)
+
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertEqual(raised.exception.detail, "xray_image_not_found")
+
+    async def test_predict_pneumonia_maps_model_load_error(self) -> None:
+        session = AsyncMock()
+
+        async def run_sync(function, *args):
+            return function(*args)
+
+        with tempfile.TemporaryDirectory(
+            dir=Path.cwd(),
+            prefix="prediction-test-",
+        ) as temporary_directory:
+            media_root = Path(temporary_directory).resolve()
+            (media_root / "test.png").write_bytes(b"synthetic-xray")
+
+            with (
+                patch.object(
+                    prediction_service,
+                    "XRAY_MEDIA_ROOT",
+                    media_root,
+                ),
+                patch(
+                    "app.services.prediction_service.prediction_repository."
+                    "get_medical_record_by_id",
+                    new_callable=AsyncMock,
+                    return_value=object(),
+                ),
+                patch(
+                    "app.services.prediction_service.get_cached_prediction",
+                    new_callable=AsyncMock,
+                    return_value=None,
+                ),
+                patch(
+                    "app.services.prediction_service.prediction_repository."
+                    "get_first_xray_image",
+                    new_callable=AsyncMock,
+                    return_value=SimpleNamespace(
+                        image_url="/media/xray/test.png"
+                    ),
+                ),
+                patch(
+                    "app.services.prediction_service.run_in_threadpool",
+                    new=run_sync,
+                ),
+                patch(
+                    "app.services.prediction_service.load_model",
+                    side_effect=RuntimeError("weights unavailable"),
+                ),
+            ):
+                with self.assertRaises(HTTPException) as raised:
+                    await prediction_service.predict_pneumonia(
+                        session,
+                        10,
+                    )
+
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertEqual(raised.exception.detail, "model_unavailable")
+
+    async def test_predict_pneumonia_maps_inference_error(self) -> None:
+        session = AsyncMock()
+
+        async def run_sync(function, *args):
+            return function(*args)
+
+        with tempfile.TemporaryDirectory(
+            dir=Path.cwd(),
+            prefix="prediction-test-",
+        ) as temporary_directory:
+            media_root = Path(temporary_directory).resolve()
+            (media_root / "test.png").write_bytes(b"synthetic-xray")
+
+            with (
+                patch.object(
+                    prediction_service,
+                    "XRAY_MEDIA_ROOT",
+                    media_root,
+                ),
+                patch(
+                    "app.services.prediction_service.prediction_repository."
+                    "get_medical_record_by_id",
+                    new_callable=AsyncMock,
+                    return_value=object(),
+                ),
+                patch(
+                    "app.services.prediction_service.get_cached_prediction",
+                    new_callable=AsyncMock,
+                    return_value=None,
+                ),
+                patch(
+                    "app.services.prediction_service.prediction_repository."
+                    "get_first_xray_image",
+                    new_callable=AsyncMock,
+                    return_value=SimpleNamespace(
+                        image_url="/media/xray/test.png"
+                    ),
+                ),
+                patch(
+                    "app.services.prediction_service.run_in_threadpool",
+                    new=run_sync,
+                ),
+                patch(
+                    "app.services.prediction_service.load_model",
+                    return_value=object(),
+                ),
+                patch(
+                    "app.services.prediction_service.predict_xray",
+                    side_effect=ValueError("invalid image"),
+                ),
+            ):
+                with self.assertRaises(HTTPException) as raised:
+                    await prediction_service.predict_pneumonia(
+                        session,
+                        10,
+                    )
+
+        self.assertEqual(raised.exception.status_code, 500)
+        self.assertEqual(raised.exception.detail, "prediction_failed")
+
+    async def test_get_predictions_returns_page_contract(self) -> None:
+        session = AsyncMock()
+        predictions = [make_prediction()]
+
+        with (
+            patch(
+                "app.services.prediction_service.prediction_repository."
+                "get_medical_record_by_id",
+                new_callable=AsyncMock,
+                return_value=object(),
+            ),
+            patch(
+                "app.services.prediction_service.list_prediction_results",
+                new_callable=AsyncMock,
+                return_value=(predictions, 1),
+            ) as list_prediction_results,
+        ):
+            result = await prediction_service.get_predictions(
+                session,
+                10,
+                2,
+                5,
+            )
+
+        self.assertEqual(result["page"], 2)
+        self.assertEqual(result["size"], 5)
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["predictions"][0]["id"], 1)
+        list_prediction_results.assert_awaited_once_with(
+            session,
+            record_id=10,
+            page=2,
+            size=5,
+        )
+
+    async def test_get_predictions_rejects_missing_record(self) -> None:
+        session = AsyncMock()
+        with patch(
+            "app.services.prediction_service.prediction_repository."
+            "get_medical_record_by_id",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                await prediction_service.get_predictions(
+                    session,
+                    999,
+                    1,
+                    10,
+                )
+
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertEqual(
+            raised.exception.detail,
+            "medical_record_not_found",
+        )
+
+    def test_resolve_xray_image_path_rejects_traversal(self) -> None:
+        with tempfile.TemporaryDirectory(
+            dir=Path.cwd(),
+            prefix="prediction-test-",
+        ) as temporary_directory:
+            with (
+                patch.object(
+                    prediction_service,
+                    "XRAY_MEDIA_ROOT",
+                    Path(temporary_directory).resolve(),
+                ),
+                self.assertRaises(HTTPException) as raised,
+            ):
+                prediction_service.resolve_xray_image_path(
+                    "/media/xray/../../secret.png"
+                )
+
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertEqual(raised.exception.detail, "xray_image_not_found")
+
+    def test_router_access_detail_is_exported(self) -> None:
+        self.assertEqual(
+            prediction_service.PREDICTION_ACCESS_DENIED_DETAIL,
+            "prediction_access_denied",
         )
 
 
