@@ -17,12 +17,11 @@
     
     <div style="display: flex; justify-content: space-between; align-items: center;">
         <h3>AI 폐렴 예측 결과</h3>
-        <button id="predict-btn">AI 예측 결과보기</button>
+        <button id="predict-btn" type="button">AI 예측 결과보기</button>
     </div>
-    
-    <div id="analysis-list">
-        <!-- JS로 채워짐 -->
-    </div>
+    <p id="prediction-status" role="status" aria-live="polite"></p>
+    <div id="analysis-list" aria-live="polite"></div>
+    <p class="form-hint">AI 예측 결과는 의료진의 판단을 보조하는 정보이며 확정 진단이 아닙니다.</p>
     
     <button id="back-to-patient-btn" class="secondary" style="margin-top: 1rem;">진료 목록으로</button>
 </div>
