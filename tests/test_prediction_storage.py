@@ -1,12 +1,15 @@
 import tempfile
 import unittest
+from json import dumps
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
+from uuid import UUID
 
 from fastapi import HTTPException
+from redis.exceptions import RedisError
 from sqlalchemy.exc import IntegrityError
 
 from app.models.ai_analysis_result import AIAnalysisResult
@@ -241,14 +244,167 @@ class PredictionStorageServiceTestCase(unittest.IsolatedAsyncioTestCase):
         )
 
 
+class PredictionRedisContractTestCase(unittest.IsolatedAsyncioTestCase):
+    def make_redis_mocks(self):
+        redis_client = MagicMock()
+        pubsub = MagicMock()
+        redis_client.pubsub.return_value = pubsub
+        redis_client.rpush = AsyncMock()
+        pubsub.subscribe = AsyncMock()
+        pubsub.unsubscribe = AsyncMock()
+        pubsub.aclose = AsyncMock()
+        pubsub.get_message = AsyncMock(
+            return_value={"type": "subscribe"}
+        )
+        return redis_client, pubsub
+
+    async def test_subscribes_before_enqueue_and_validates_result(self) -> None:
+        redis_client, pubsub = self.make_redis_mocks()
+        job_id = "550e8400-e29b-41d4-a716-446655440000"
+        result_channel = f"prediction:results:{job_id}"
+        pubsub.get_message = AsyncMock(
+            side_effect=[
+                {"type": "subscribe"},
+                {
+                    "type": "message",
+                    "data": dumps(
+                        {
+                            "job_id": job_id,
+                            "status": "succeeded",
+                            "result": {
+                                "is_pneumonia": True,
+                                "confidence": 92.35,
+                                "heatmap_url": None,
+                                "model_name": MODEL_NAME,
+                            },
+                            "error": None,
+                        }
+                    ),
+                },
+            ]
+        )
+        operations = MagicMock()
+        operations.attach_mock(pubsub.subscribe, "subscribe")
+        operations.attach_mock(redis_client.rpush, "rpush")
+
+        with (
+            patch(
+                "app.services.prediction_service.get_redis_client",
+                return_value=redis_client,
+            ),
+            patch(
+                "app.services.prediction_service.uuid4",
+                return_value=UUID(job_id),
+            ),
+        ):
+            response = await prediction_service.request_worker_prediction(
+                record_id=10,
+                image_key="xray/test.png",
+                model_name=MODEL_NAME,
+            )
+
+        self.assertEqual(response.status, "succeeded")
+        self.assertTrue(response.result.is_pneumonia)
+        self.assertEqual(
+            operations.method_calls[:2],
+            [
+                call.subscribe(result_channel),
+                call.rpush(
+                    "prediction:jobs",
+                    ANY,
+                ),
+            ],
+        )
+        queued_payload = redis_client.rpush.await_args.args[1]
+        self.assertIn('"image_key":"xray/test.png"', queued_payload)
+        pubsub.unsubscribe.assert_awaited_once_with(result_channel)
+        pubsub.aclose.assert_awaited_once_with()
+
+    async def test_maps_redis_error_to_service_unavailable(self) -> None:
+        redis_client, pubsub = self.make_redis_mocks()
+        redis_client.rpush.side_effect = RedisError("redis unavailable")
+
+        with (
+            patch(
+                "app.services.prediction_service.get_redis_client",
+                return_value=redis_client,
+            ),
+            self.assertRaises(HTTPException) as raised,
+        ):
+            await prediction_service.request_worker_prediction(
+                record_id=10,
+                image_key="xray/test.png",
+                model_name=MODEL_NAME,
+            )
+
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertEqual(
+            raised.exception.detail,
+            "prediction_queue_unavailable",
+        )
+        pubsub.unsubscribe.assert_awaited_once()
+        pubsub.aclose.assert_awaited_once_with()
+
+    async def test_maps_worker_timeout_to_gateway_timeout(self) -> None:
+        redis_client, pubsub = self.make_redis_mocks()
+        pubsub.get_message = AsyncMock(
+            side_effect=[
+                {"type": "subscribe"},
+                *([None] * 100),
+            ]
+        )
+
+        with (
+            patch(
+                "app.services.prediction_service.get_redis_client",
+                return_value=redis_client,
+            ),
+            patch.object(
+                prediction_service.settings,
+                "PREDICTION_TIMEOUT_SECONDS",
+                0.001,
+            ),
+            self.assertRaises(HTTPException) as raised,
+        ):
+            await prediction_service.request_worker_prediction(
+                record_id=10,
+                image_key="xray/test.png",
+                model_name=MODEL_NAME,
+            )
+
+        self.assertEqual(raised.exception.status_code, 504)
+        self.assertEqual(raised.exception.detail, "prediction_timeout")
+
+    def test_rejects_malformed_or_mismatched_worker_response(self) -> None:
+        for raw_data in (
+            "not-json",
+            dumps(
+                {
+                    "job_id": "different-job",
+                    "status": "failed",
+                    "result": None,
+                    "error": {"code": "prediction_failed"},
+                }
+            ),
+        ):
+            with self.subTest(raw_data=raw_data):
+                with self.assertRaises(HTTPException) as raised:
+                    prediction_service._decode_worker_response(
+                        raw_data,
+                        "expected-job",
+                    )
+                self.assertEqual(raised.exception.status_code, 500)
+                self.assertEqual(
+                    raised.exception.detail,
+                    "prediction_failed",
+                )
+
+
 class PredictionPublicContractTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_predict_pneumonia_runs_first_prediction(self) -> None:
         session = AsyncMock()
         prediction = make_prediction()
         xray_image = SimpleNamespace(image_url="/media/xray/test.png")
-
-        async def run_sync(function, *args):
-            return function(*args)
 
         with tempfile.TemporaryDirectory(
             dir=Path.cwd(),
@@ -282,17 +438,21 @@ class PredictionPublicContractTestCase(unittest.IsolatedAsyncioTestCase):
                     return_value=xray_image,
                 ),
                 patch(
-                    "app.services.prediction_service.run_in_threadpool",
-                    new=run_sync,
-                ),
-                patch(
-                    "app.services.prediction_service.load_model",
-                    return_value=object(),
-                ) as load_model,
-                patch(
-                    "app.services.prediction_service.predict_xray",
-                    return_value=(True, 94.28),
-                ) as predict_xray,
+                    "app.services.prediction_service."
+                    "request_worker_prediction",
+                    new_callable=AsyncMock,
+                    return_value=prediction_service.WorkerPredictionResponse(
+                        job_id="550e8400-e29b-41d4-a716-446655440000",
+                        status="succeeded",
+                        result={
+                            "is_pneumonia": True,
+                            "confidence": 94.28,
+                            "heatmap_url": None,
+                            "model_name": MODEL_NAME,
+                        },
+                        error=None,
+                    ),
+                ) as request_worker,
                 patch(
                     "app.services.prediction_service.save_prediction_result",
                     new_callable=AsyncMock,
@@ -307,8 +467,11 @@ class PredictionPublicContractTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["cached"])
         self.assertEqual(result["record_id"], 10)
         self.assertEqual(result["confidence"], 94.28)
-        load_model.assert_called_once_with()
-        predict_xray.assert_called_once_with(image_path)
+        request_worker.assert_awaited_once_with(
+            record_id=10,
+            image_key="xray/test.png",
+            model_name=MODEL_NAME,
+        )
         save_prediction.assert_awaited_once_with(
             session,
             record_id=10,
@@ -340,8 +503,9 @@ class PredictionPublicContractTestCase(unittest.IsolatedAsyncioTestCase):
                 new_callable=AsyncMock,
             ) as get_xray_image,
             patch(
-                "app.services.prediction_service.predict_xray"
-            ) as predict_xray,
+                "app.services.prediction_service.request_worker_prediction",
+                new_callable=AsyncMock,
+            ) as request_worker,
         ):
             result = await prediction_service.predict_pneumonia(
                 session,
@@ -351,7 +515,7 @@ class PredictionPublicContractTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["cached"])
         self.assertEqual(result["id"], cached_prediction.id)
         get_xray_image.assert_not_awaited()
-        predict_xray.assert_not_called()
+        request_worker.assert_not_awaited()
 
     async def test_predict_pneumonia_rejects_missing_record(self) -> None:
         session = AsyncMock()
@@ -400,9 +564,6 @@ class PredictionPublicContractTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_predict_pneumonia_maps_model_load_error(self) -> None:
         session = AsyncMock()
 
-        async def run_sync(function, *args):
-            return function(*args)
-
         with tempfile.TemporaryDirectory(
             dir=Path.cwd(),
             prefix="prediction-test-",
@@ -436,12 +597,15 @@ class PredictionPublicContractTestCase(unittest.IsolatedAsyncioTestCase):
                     ),
                 ),
                 patch(
-                    "app.services.prediction_service.run_in_threadpool",
-                    new=run_sync,
-                ),
-                patch(
-                    "app.services.prediction_service.load_model",
-                    side_effect=RuntimeError("weights unavailable"),
+                    "app.services.prediction_service."
+                    "request_worker_prediction",
+                    new_callable=AsyncMock,
+                    return_value=prediction_service.WorkerPredictionResponse(
+                        job_id="550e8400-e29b-41d4-a716-446655440000",
+                        status="failed",
+                        result=None,
+                        error={"code": "model_unavailable"},
+                    ),
                 ),
             ):
                 with self.assertRaises(HTTPException) as raised:
@@ -456,9 +620,6 @@ class PredictionPublicContractTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_predict_pneumonia_maps_invalid_xray_image_error(self) -> None:
         session = AsyncMock()
 
-        async def run_sync(function, *args):
-            return function(*args)
-
         with tempfile.TemporaryDirectory(
             dir=Path.cwd(),
             prefix="prediction-test-",
@@ -492,16 +653,15 @@ class PredictionPublicContractTestCase(unittest.IsolatedAsyncioTestCase):
                     ),
                 ),
                 patch(
-                    "app.services.prediction_service.run_in_threadpool",
-                    new=run_sync,
-                ),
-                patch(
-                    "app.services.prediction_service.load_model",
-                    return_value=object(),
-                ),
-                patch(
-                    "app.services.prediction_service.predict_xray",
-                    side_effect=ValueError("invalid image"),
+                    "app.services.prediction_service."
+                    "request_worker_prediction",
+                    new_callable=AsyncMock,
+                    return_value=prediction_service.WorkerPredictionResponse(
+                        job_id="550e8400-e29b-41d4-a716-446655440000",
+                        status="failed",
+                        result=None,
+                        error={"code": "invalid_xray_image"},
+                    ),
                 ),
             ):
                 with self.assertRaises(HTTPException) as raised:

@@ -1,0 +1,43 @@
+# ROLE: 문홍주 (E) — Docker/인프라 담당
+# TARGET: docker-compose.yml 에 병합
+#
+# 1) fastapi 서비스의 environment 블록에 REDIS_URL 한 줄 추가
+# 2) redis 서비스는 이미 있음 (건드릴 필요 없음, depends_on만 추가)
+# 3) 아래 ai-worker 서비스를 통째로 추가
+#
+# 주의: `.:/app` 로 레포 전체를 마운트하는 지금 방식과 맞춰서 ai-worker도
+# 동일하게 마운트해야 한다. 그래야 fastapi가 저장한 media/xray/... 경로를
+# worker 컨테이너에서 동일한 경로로 읽을 수 있다.
+
+# --- fastapi 서비스에 추가할 것 (기존 environment 블록 안에 한 줄) ---
+#   environment:
+#     ...
+#     REDIS_URL: redis://redis:6379/0
+#   depends_on:
+#     mysql:
+#       condition: service_healthy
+#     redis:
+#       condition: service_healthy   # ← 추가
+
+# --- 새로 추가할 서비스 ---
+services:
+  ai-worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    volumes:
+      - .:/app
+      - ai-worker-venv:/app/.venv   # fastapi-venv와 별도 named volume (의존성이 다르므로)
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    # TODO: 여러 워커를 동시에 띄워서 테스트하려면
+    #   docker compose up -d --scale ai-worker=2
+    # 로 실행 (deploy.replicas는 compose 단독 실행에선 무시되므로 --scale 사용)
+
+# --- volumes 블록에 추가 ---
+volumes:
+  ai-worker-venv:
