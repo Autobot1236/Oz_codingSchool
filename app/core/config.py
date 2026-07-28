@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,6 +10,10 @@ class Settings(BaseSettings):
     DB_NAME: str = "ai_health"
     JWT_SECRET_KEY: str = "change-me-in-env"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REDIS_URL: str = "redis://localhost:6379/0"
+    PREDICTION_QUEUE_NAME: str = "prediction:jobs"
+    PREDICTION_RESULT_CHANNEL_PREFIX: str = "prediction:results"
+    PREDICTION_TIMEOUT_SECONDS: float = Field(default=2.5, gt=0)
 
     model_config = {
         "env_file": ".env",

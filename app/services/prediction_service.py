@@ -1,16 +1,25 @@
+import asyncio
+import json
+import logging
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
-from typing import TypedDict
+from typing import Literal, TypedDict
+from uuid import uuid4
 
 from fastapi import HTTPException, status
-from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel, Field, ValidationError, model_validator
+from redis.exceptions import RedisError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.redis_client import get_redis_client
 from app.models.ai_analysis_result import AIAnalysisResult
 from app.repositories import prediction_repository
-from worker.model import MODEL_NAME, load_model, predict_xray
+from worker.model import MODEL_NAME
+
+logger = logging.getLogger(__name__)
 
 CONFIDENCE_QUANTUM = Decimal("0.01")
 MIN_CONFIDENCE = Decimal("0.00")
@@ -26,6 +35,18 @@ XRAY_IMAGE_NOT_FOUND_DETAIL = "xray_image_not_found"
 INVALID_XRAY_IMAGE_DETAIL = "invalid_xray_image"
 MODEL_UNAVAILABLE_DETAIL = "model_unavailable"
 PREDICTION_FAILED_DETAIL = "prediction_failed"
+INVALID_IMAGE_PATH_DETAIL = "invalid_image_path"
+PREDICTION_QUEUE_UNAVAILABLE_DETAIL = "prediction_queue_unavailable"
+PREDICTION_TIMEOUT_DETAIL = "prediction_timeout"
+
+WORKER_ERROR_STATUS = {
+    INVALID_IMAGE_PATH_DETAIL: status.HTTP_500_INTERNAL_SERVER_ERROR,
+    XRAY_IMAGE_NOT_FOUND_DETAIL: status.HTTP_404_NOT_FOUND,
+    INVALID_XRAY_IMAGE_DETAIL: status.HTTP_422_UNPROCESSABLE_CONTENT,
+    MODEL_UNAVAILABLE_DETAIL: status.HTTP_503_SERVICE_UNAVAILABLE,
+    PREDICTION_FAILED_DETAIL: status.HTTP_500_INTERNAL_SERVER_ERROR,
+}
+SUBSCRIPTION_TIMEOUT_SECONDS = 1.0
 
 
 class PredictionData(TypedDict):
@@ -47,6 +68,39 @@ class PredictionPage(TypedDict):
     page: int
     size: int
     total: int
+
+
+class WorkerPredictionData(BaseModel):
+    is_pneumonia: bool
+    confidence: float = Field(ge=0.0, le=100.0)
+    heatmap_url: str | None = None
+    model_name: str = Field(min_length=1, max_length=MAX_AI_MODEL_LENGTH)
+
+
+class WorkerPredictionError(BaseModel):
+    code: Literal[
+        "invalid_image_path",
+        "xray_image_not_found",
+        "invalid_xray_image",
+        "model_unavailable",
+        "prediction_failed",
+    ]
+
+
+class WorkerPredictionResponse(BaseModel):
+    job_id: str = Field(min_length=36, max_length=36)
+    status: Literal["succeeded", "failed"]
+    result: WorkerPredictionData | None
+    error: WorkerPredictionError | None
+
+    @model_validator(mode="after")
+    def validate_status_payload(self) -> "WorkerPredictionResponse":
+        if self.status == "succeeded":
+            if self.result is None or self.error is not None:
+                raise ValueError("invalid_worker_success_payload")
+        elif self.result is not None or self.error is None:
+            raise ValueError("invalid_worker_failure_payload")
+        return self
 
 
 def normalize_ai_model(ai_model: str) -> str:
@@ -127,6 +181,140 @@ def resolve_xray_image_path(image_url: str) -> Path:
             detail=XRAY_IMAGE_NOT_FOUND_DETAIL,
         )
     return candidate_path
+
+
+def resolve_xray_image_key(image_url: str) -> str:
+    image_path = resolve_xray_image_path(image_url)
+    stored_path = image_path.relative_to(XRAY_MEDIA_ROOT).as_posix()
+    return f"xray/{stored_path}"
+
+
+def _decode_worker_response(
+    raw_data: str | bytes,
+    expected_job_id: str,
+) -> WorkerPredictionResponse:
+    try:
+        if isinstance(raw_data, bytes):
+            raw_data = raw_data.decode("utf-8")
+        response = WorkerPredictionResponse.model_validate_json(raw_data)
+    except (TypeError, UnicodeDecodeError, ValidationError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=PREDICTION_FAILED_DETAIL,
+        ) from exc
+
+    if response.job_id != expected_job_id:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=PREDICTION_FAILED_DETAIL,
+        )
+    return response
+
+
+async def _confirm_subscription(pubsub) -> None:
+    try:
+        async with asyncio.timeout(SUBSCRIPTION_TIMEOUT_SECONDS):
+            while True:
+                message = await pubsub.get_message(
+                    ignore_subscribe_messages=False,
+                    timeout=SUBSCRIPTION_TIMEOUT_SECONDS,
+                )
+                if message is not None and message.get("type") == "subscribe":
+                    return
+                await asyncio.sleep(0)
+    except TimeoutError as exc:
+        raise RedisError("Redis result subscription was not confirmed.") from exc
+
+
+async def request_worker_prediction(
+    *,
+    record_id: int,
+    image_key: str,
+    model_name: str,
+) -> WorkerPredictionResponse:
+    job_id = str(uuid4())
+    result_channel = (
+        f"{settings.PREDICTION_RESULT_CHANNEL_PREFIX}:{job_id}"
+    )
+    request_payload = json.dumps(
+        {
+            "job_id": job_id,
+            "record_id": record_id,
+            "image_key": image_key,
+            "model_name": model_name,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+    redis_client = get_redis_client()
+    pubsub = redis_client.pubsub()
+    subscribed = False
+
+    try:
+        # Pub/Sub does not retain messages. Subscribe before queueing the job
+        # so a fast Worker response cannot be lost.
+        await pubsub.subscribe(result_channel)
+        await _confirm_subscription(pubsub)
+        subscribed = True
+        await redis_client.rpush(
+            settings.PREDICTION_QUEUE_NAME,
+            request_payload,
+        )
+
+        async with asyncio.timeout(settings.PREDICTION_TIMEOUT_SECONDS):
+            while True:
+                message = await pubsub.get_message(
+                    ignore_subscribe_messages=True,
+                    timeout=settings.PREDICTION_TIMEOUT_SECONDS,
+                )
+                if message is None:
+                    await asyncio.sleep(0)
+                    continue
+                return _decode_worker_response(
+                    message["data"],
+                    job_id,
+                )
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=PREDICTION_TIMEOUT_DETAIL,
+        ) from exc
+    except RedisError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=PREDICTION_QUEUE_UNAVAILABLE_DETAIL,
+        ) from exc
+    finally:
+        if subscribed:
+            try:
+                await pubsub.unsubscribe(result_channel)
+            except RedisError:
+                logger.warning(
+                    "Redis 결과 채널 구독 해제에 실패했습니다: %s",
+                    result_channel,
+                    exc_info=True,
+                )
+        try:
+            await pubsub.aclose()
+        except RedisError:
+            logger.warning(
+                "Redis Pub/Sub 연결 종료에 실패했습니다.",
+                exc_info=True,
+            )
+
+
+def raise_worker_error(error_code: str) -> None:
+    status_code = WORKER_ERROR_STATUS.get(
+        error_code,
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+    )
+    detail = (
+        error_code
+        if error_code in WORKER_ERROR_STATUS
+        else PREDICTION_FAILED_DETAIL
+    )
+    raise HTTPException(status_code=status_code, detail=detail)
 
 
 async def get_cached_prediction(
@@ -233,42 +421,36 @@ async def predict_pneumonia(
             detail=XRAY_IMAGE_NOT_FOUND_DETAIL,
         )
 
-    image_path = resolve_xray_image_path(xray_image.image_url)
+    image_key = resolve_xray_image_key(xray_image.image_url)
+    worker_response = await request_worker_prediction(
+        record_id=record_id,
+        image_key=image_key,
+        model_name=MODEL_NAME,
+    )
 
-    try:
-        await run_in_threadpool(load_model)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=MODEL_UNAVAILABLE_DETAIL,
-        ) from exc
+    if worker_response.status == "failed":
+        if worker_response.error is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=PREDICTION_FAILED_DETAIL,
+            )
+        raise_worker_error(worker_response.error.code)
 
-    try:
-        is_pneumonia, confidence = await run_in_threadpool(
-            predict_xray,
-            image_path,
-        )
-    except ValueError as exc:
-        # worker.model converts image decoding failures to ValueError.
-        # This is an invalid uploaded X-Ray, not an internal inference error.
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=INVALID_XRAY_IMAGE_DETAIL,
-        ) from exc
-    except Exception as exc:
+    worker_result = worker_response.result
+    if worker_result is None or worker_result.model_name != MODEL_NAME:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=PREDICTION_FAILED_DETAIL,
-        ) from exc
+        )
 
     try:
         prediction, cached = await save_prediction_result(
             session,
             record_id=record_id,
-            is_pneumonia=is_pneumonia,
-            confidence=confidence,
-            ai_model=MODEL_NAME,
-            heatmap_url=None,
+            is_pneumonia=worker_result.is_pneumonia,
+            confidence=worker_result.confidence,
+            ai_model=worker_result.model_name,
+            heatmap_url=worker_result.heatmap_url,
         )
     except Exception as exc:
         raise HTTPException(
