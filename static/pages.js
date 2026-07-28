@@ -81,7 +81,9 @@ const pages = {
     },
 
     async renderPatientDetail(patientId) {
-        const patient = await apis.getPatient(patientId);
+        // 환자 상세 API는 { data: { ... } } envelope를 반환한다.
+        const patientResponse = await apis.getPatient(patientId);
+        const patient = patientResponse.data;
         const recordResponse = await apis.getPatientMedicalRecords(patientId);
         const records = recordResponse.records;
         const html = await utils.loadTemplate('patient-detail');
