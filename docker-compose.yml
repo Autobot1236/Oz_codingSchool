@@ -3,48 +3,68 @@ services:
     build:
       context: .
       dockerfile: app/Dockerfile
-    entrypoint: sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+        - --port
+      - "8000"
+      - --reload
     ports:
       - "8000:8000"
     volumes:
-      - ./app:/app
-      - static_volume:/app/static
-      - media_volume:/app/media
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/healthcheck || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 3
+      - .:/app
+      - fastapi-venv:/app/.venv
+    environment:
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:-ai_health}
+      DB_USER: ${DB_USER:-ozcoding}
+      DB_PASSWORD: ${DB_PASSWORD:-app-password}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-development-only-change-me}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-strict}
     depends_on:
       mysql:
         condition: service_healthy
+    restart: unless-stopped
 
   mysql:
-    image: mysql:8.0
-    volumes:
-      - mysql_volume:/var/lib/mysql
+    image: mysql:8.4
+    ports:
+      - "3306:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${DB_NAME}
-      MYSQL_USER: ${DB_USER}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "${DB_PORT}:3306"
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root-password}
+      MYSQL_DATABASE: ${DB_NAME:-ai_health}
+      MYSQL_USER: ${DB_USER:-ozcoding}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-app-password}
+    volumes:
+      - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost"]
-      timeout: 20s
-      retries: 5
+      test:
+        - CMD-SHELL
+        - mysqladmin ping -h localhost -u root -p"$${MYSQL_ROOT_PASSWORD}"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
 
-  adminer:
-    image: adminer:5
+  redis:
+    image: redis:7-alpine
     ports:
-      - "8080:8080"
-    depends_on:
-      mysql:
-        condition: service_healthy
-
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
 
 volumes:
-  mysql_volume:
-  static_volume:
-  media_volume:
+  fastapi-venv:
+  mysql-data:
+  redis-data:
