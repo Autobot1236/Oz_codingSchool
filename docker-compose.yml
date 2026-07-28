@@ -25,8 +25,11 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-development-only-change-me}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       COOKIE_SAMESITE: ${COOKIE_SAMESITE:-strict}
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       mysql:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 
