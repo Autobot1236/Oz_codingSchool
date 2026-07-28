@@ -35,7 +35,8 @@ const pages = {
     },
 
     async renderPatients(params = {}) {
-        const patients = await apis.getPatients(params);
+        const patientResponse = await apis.getPatients(params);
+        const patients = patientResponse.patients;
         const html = await utils.loadTemplate('patients');
         if (state.currentPage !== '/patients') return;
         const app = document.getElementById('app');
@@ -80,8 +81,11 @@ const pages = {
     },
 
     async renderPatientDetail(patientId) {
-        const patient = await apis.getPatient(patientId);
-        const records = await apis.getPatientMedicalRecords(patientId);
+        // 환자 상세 API는 { data: { ... } } envelope를 반환한다.
+        const patientResponse = await apis.getPatient(patientId);
+        const patient = patientResponse.data;
+        const recordResponse = await apis.getPatientMedicalRecords(patientId);
+        const records = recordResponse.records;
         const html = await utils.loadTemplate('patient-detail');
         if (!state.currentPage.startsWith('/patients/')) return;
         const app = document.getElementById('app');
@@ -144,8 +148,20 @@ const pages = {
     },
 
     async renderRecordDetail(recordId) {
-        const record = await apis.getMedicalRecord(recordId);
-        const analyses = await apis.getMedicalRecordAnalyses(recordId);
+        // 진료기록 상세 API는 { data: { ... } } envelope를 반환한다.
+        const detailResponse = await apis.getMedicalRecord(recordId);
+        const record = detailResponse.data;
+        const xrayImage = record.xray_images?.[0];
+        let predictions = [];
+        let predictionLoadError = null;
+        try {
+            // 6일차 설계 계약: { predictions, page, size, total }
+            const predictionPage = await apis.getMedicalRecordPredictions(recordId);
+            predictions = predictionPage.predictions;
+        } catch (error) {
+            // 예측 결과를 가져오지 못해도 진료기록 상세 화면 자체는 유지한다.
+            predictionLoadError = error;
+        }
         const html = await utils.loadTemplate('record-detail');
         const app = document.getElementById('app');
         app.innerHTML = html;
@@ -154,38 +170,56 @@ const pages = {
         document.getElementById('chart-number').innerText = record.chart_number;
         document.getElementById('symptoms-text').innerText = record.symptoms;
         document.getElementById('created-at').innerText = new Date(record.created_at).toLocaleString();
-        document.getElementById('xray-img').src = record.xray_image_url;
+        document.getElementById('xray-img').src = xrayImage?.image_url || '';
         
         document.getElementById('predict-btn').onclick = () => this.handlePredict(recordId);
         document.getElementById('back-to-patient-btn').onclick = () => navigate(`/patients/${record.patient_id}`);
-        
+
+        this.renderPredictionList(predictions, predictionLoadError);
+    },
+
+    escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>'"]/g, (character) => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+        })[character]);
+    },
+
+    renderPredictionList(predictions, loadError = null) {
         const analysisList = document.getElementById('analysis-list');
-        if (analyses.length === 0) {
-            analysisList.innerHTML = '<p>저장된 예측 결과가 없습니다.</p>';
-        } else {
-            analysisList.innerHTML = `
-                <table>
-                    <thead>
-                        <tr>
-                            <th>수행 일시</th>
-                            <th>폐렴 여부</th>
-                            <th>Confidence</th>
-                            <th>사용 모델</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${analyses.map(a => `
-                            <tr class="${a.is_pneumonia ? 'result-positive' : 'result-negative'}">
-                                <td>${new Date(a.created_at).toLocaleString()}</td>
-                                <td><strong>${a.is_pneumonia ? 'Positive' : 'Negative'}</strong></td>
-                                <td>${a.confidence}%</td>
-                                <td>${a.ai_model}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `;
+        const predictionStatus = document.getElementById('prediction-status');
+        if (!analysisList) return;
+
+        if (loadError) {
+            if (predictionStatus) predictionStatus.textContent = loadError.message;
+            analysisList.innerHTML = '<p>AI 예측 결과를 아직 불러올 수 없습니다.</p>';
+            return;
         }
+        if (predictions.length === 0) {
+            analysisList.innerHTML = '<p>저장된 AI 예측 결과가 없습니다. AI 예측 결과보기를 눌러주세요.</p>';
+            return;
+        }
+        analysisList.innerHTML = `
+            <table>
+                <thead>
+                    <tr>
+                        <th>수행 일시</th>
+                        <th>폐렴 예측</th>
+                        <th>신뢰도</th>
+                        <th>사용 모델</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${predictions.map(prediction => `
+                        <tr class="${prediction.is_pneumonia ? 'result-positive' : 'result-negative'}">
+                            <td>${new Date(prediction.created_at).toLocaleString()}</td>
+                            <td><strong>${prediction.is_pneumonia ? '폐렴 의심' : '정상 소견'}</strong></td>
+                            <td>${Number(prediction.confidence).toFixed(2)}%</td>
+                            <td>${this.escapeHtml(prediction.ai_model)}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
     },
 
     // 백엔드 UserProfileResponse는 department/gender/role을 enum "이름"(영문)으로 내려줍니다.
@@ -415,13 +449,12 @@ const pages = {
     async handleRecordCreate(e, patientId) {
         e.preventDefault();
         const formData = new FormData();
-        formData.append('patient_id', patientId);
         formData.append('chart_number', document.getElementById('chart_number').value);
         formData.append('symptoms', document.getElementById('symptoms').value);
         formData.append('xray_image', document.getElementById('xray_image').files[0]);
 
         try {
-            await apis.createMedicalRecord(formData);
+            await apis.createMedicalRecord(patientId, formData);
             utils.showAlert('진료 기록이 등록되었습니다.', 'success');
             navigate(`/patients/${patientId}`);
         } catch (err) {
@@ -476,12 +509,29 @@ const pages = {
     },
 
     async handlePredict(recordId) {
+        const predictButton = document.getElementById('predict-btn');
+        const predictionStatus = document.getElementById('prediction-status');
         try {
-            await apis.predictPneumonia(recordId);
-            utils.showAlert('AI 예측이 완료되었습니다.', 'success');
+            if (predictButton) {
+                predictButton.disabled = true;
+                predictButton.innerText = 'AI 예측 중...';
+            }
+            if (predictionStatus) predictionStatus.textContent = 'AI 예측 중입니다.';
+            const response = await apis.predictPneumonia(recordId);
+            const message = response.cached
+                ? '이미 저장된 AI 예측 결과를 불러왔습니다.'
+                : '새 AI 예측 결과를 저장했습니다.';
+            if (predictionStatus) predictionStatus.textContent = message;
+            utils.showAlert(message, 'success');
             navigate(`/medical-records/${recordId}`, false);
         } catch (err) {
+            if (predictionStatus) predictionStatus.textContent = err.message;
             utils.showAlert(`AI 예측 실패: ${err.message}`, 'error');
+        } finally {
+            if (predictButton && document.contains(predictButton)) {
+                predictButton.disabled = false;
+                predictButton.innerText = 'AI 예측 결과보기';
+            }
         }
     }
 };

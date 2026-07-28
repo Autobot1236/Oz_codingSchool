@@ -6,6 +6,18 @@
     --text-color: #333;
 }
 
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    width: 100%;
+    min-width: 320px;
+}
+
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     line-height: 1.6;
@@ -18,24 +30,29 @@ header {
     background: #fff;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     padding: 1rem 2rem;
+    width: 100%;
 }
 
 nav {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
     width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    gap: 1.5rem;
 }
 
 #nav-links {
     flex: 1;
+    min-width: 0;
 }
 
 .logo {
     font-size: 1.5rem;
     font-weight: bold;
     color: var(--primary-color);
-    margin-right: 2rem;
+    white-space: nowrap;
 }
 
 nav ul {
@@ -45,15 +62,18 @@ nav ul {
     gap: 1rem;
     margin: 0;
     padding: 0;
+    flex-wrap: wrap;
 }
 
 .nav-btn {
+    display: block;
     text-decoration: none;
     color: var(--text-color);
     font-weight: 500;
     padding: 0.5rem 1rem;
     border-radius: 20px;
     transition: all 0.3s ease;
+    white-space: nowrap;
 }
 
 .nav-btn:hover {
@@ -66,6 +86,7 @@ nav ul {
     align-items: center;
     gap: 1rem;
     margin-left: auto;
+    white-space: nowrap;
 }
 
 .user-info {
@@ -104,10 +125,11 @@ nav ul {
 }
 
 main {
-    padding: 2rem;
+    padding: 2rem 1.25rem;
     max-width: 1200px;
     margin: 0 auto;
     min-height: calc(100vh - 160px);
+    width: 100%;
 }
 
 .card {
@@ -116,6 +138,7 @@ main {
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.05);
     margin-bottom: 1.5rem;
+    min-width: 0;
 }
 
 .auth-card {
@@ -195,6 +218,7 @@ button {
     color: white;
     cursor: pointer;
     font-weight: bold;
+    white-space: nowrap;
 }
 
 button:hover {
@@ -207,8 +231,15 @@ button.secondary {
 
 table {
     width: 100%;
+    min-width: 640px;
     border-collapse: collapse;
     margin-top: 1rem;
+}
+
+.table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 th, td {
@@ -343,4 +374,156 @@ footer {
 .status-badge.error {
     background-color: #ffdce0;
     color: var(--danger-color);
+}
+
+.page-header,
+.detail-header,
+.record-layout,
+.result-header,
+.modal-actions {
+    display: flex;
+    gap: 1rem;
+}
+
+.page-header,
+.detail-header,
+.result-header {
+    align-items: center;
+    justify-content: space-between;
+}
+
+.page-header {
+    margin-bottom: 1.5rem;
+}
+
+.page-header h2,
+.detail-header h2,
+.result-header h3 {
+    margin: 0;
+}
+
+.search-bar {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+}
+
+.search-bar input[type="text"] {
+    flex: 1 1 220px;
+}
+
+.search-bar input[type="number"] {
+    width: 110px;
+}
+
+.record-layout > * {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.record-layout img {
+    display: block;
+    width: 100%;
+    max-width: 520px;
+    height: auto;
+    border-radius: 8px;
+}
+
+.detail-actions,
+.modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.modal-actions {
+    justify-content: flex-end;
+    margin-top: 1rem;
+}
+
+.form-hint {
+    color: #666;
+    font-size: 0.9rem;
+}
+
+h1 {
+    font-size: clamp(1.75rem, 4vw, 2.25rem);
+    line-height: 1.35;
+}
+
+@media (max-width: 700px) {
+    header {
+        padding: 1rem;
+    }
+
+    nav {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    #nav-links,
+    nav ul {
+        width: 100%;
+    }
+
+    nav ul {
+        gap: 0.4rem;
+    }
+
+    .nav-item-right {
+        margin-left: 0;
+    }
+
+    .nav-btn {
+        padding: 0.45rem 0.7rem;
+    }
+
+    main {
+        padding: 1rem;
+    }
+
+    .card {
+        padding: 1.25rem;
+    }
+
+    h1 {
+        font-size: 1.6rem;
+    }
+
+    h2 {
+        font-size: 1.35rem;
+    }
+
+    .page-header,
+    .detail-header,
+    .result-header,
+    .record-layout {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .detail-actions,
+    .form-actions,
+    .modal-actions {
+        width: 100%;
+    }
+
+    .detail-actions button,
+    .form-actions button,
+    .modal-actions button {
+        flex: 1 1 auto;
+    }
+
+    .search-bar > * {
+        flex: 1 1 100%;
+        width: 100% !important;
+    }
+
+    .search-bar button {
+        flex: 1 1 calc(50% - 0.25rem);
+        width: auto !important;
+    }
 }

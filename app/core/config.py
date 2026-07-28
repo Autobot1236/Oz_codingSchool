@@ -24,7 +24,9 @@ class AuthSettings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    COOKIE_SECURE: bool = True
+    # `fastapi run`의 로컬 HTTP 환경에서는 Secure 쿠키가 저장되지 않는다.
+    # 실제 HTTPS 배포 환경에서는 .env에서 반드시 true로 설정한다.
+    COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: str = "strict"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
