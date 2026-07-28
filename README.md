@@ -27,6 +27,20 @@ FastAPI 기반의 환자·진료기록 관리 기능과 폐렴 예측 AI를 하�
 | 7 | 아키텍처 설계 및 적용 | FastAPI·Redis·AI Worker·MySQL 책임 분리 |
 | 8 | Docker 인프라 작성 | FastAPI/MySQL/Redis/AI Worker 컨테이너와 영속 볼륨 |
 
+## 역할 운영 방식
+
+역할은 배타적인 직무가 아니라 주 책임 영역입니다. 각 담당자는 자신의 영역의 설계 기준과 통합 품질을 책임지고, Stage 2·4·5에서는 다섯 명 모두 API를 구현합니다.
+
+## 이름 배정표
+
+| 역할 | 담당자 | 주 책임 |
+| --- | --- | --- |
+| A | 이희진 | 팀 운영·아키텍처·통합 |
+| B | 이수인 | 인증·회원 도메인 |
+| C | 안상균 | DB·환자·진료기록 |
+| D | 양준혁 | AI 모델·이미지 추론 |
+| E | 문홍주 | 프론트엔드·QA·Docker |
+
 ---
 
 ## 1. Team Rule 정의
@@ -274,6 +288,19 @@ Stage 1에서는 FastAPI와 MySQL을 컨테이너화했고, Stage 3에서 Redis�
 - `restart: unless-stopped`로 개발 환경의 일시적 종료에서 자동 복구합니다.
 
 [PR #48](https://github.com/Autobot1236/Oz_codingSchool/pull/48)에서 FastAPI 멀티 스테이지 이미지와 `.dockerignore`를, [PR #51](https://github.com/Autobot1236/Oz_codingSchool/pull/51)에서 Compose 실행 명령을, [PR #53](https://github.com/Autobot1236/Oz_codingSchool/pull/53)에서 FastAPI·MySQL 실행 증빙을 반영했습니다. 이후 [PR #54](https://github.com/Autobot1236/Oz_codingSchool/pull/54)에서 `ai-worker` 이미지·서비스와 AI 의존성 분리를 추가했고, 최종 [PR #61](https://github.com/Autobot1236/Oz_codingSchool/pull/61)로 모두 `main`에 병합했습니다.
+
+### 9. AWS 배포
+
+선택 과제(Stage 5)로 분류되어 있었고, 일정상(마감 2026-07-29) 필수 Stage 1~4를 완료하는 데 우선순위를 두어 진행하지 않았다.
+
+### 10. QA 진행
+
+- **유닛 테스트**: Redis 클라이언트, 예측 서비스(캐시/에러 매핑), 동시성 시나리오를 mock 기반 유닛테스트로 검증
+- **실제 동시성 테스트**: 같은 진료기록에 대한 예측 요청 2개를 `threading.Barrier`로 완전히 동시에 전송해, DB에 중복 없이 하나의 결과로 수렴하는지 실제 서버에 대고 검증 (`scripts/test_prediction_concurrency.py`)
+- **엔드투엔드 검증**: `mysql`+`redis`+`fastapi`+`ai-worker` 4개 컨테이너를 모두 띄운 뒤 회원가입 → 로그인 → 환자 등록 → 진료기록(X-Ray) 등록 → 예측 요청까지 실제 HTTP 요청으로 전체 흐름을 확인했다. 최초 요청은 캐시 미스로 Redis 큐 등록 → 워커 추론 → Pub/Sub 결과 전달 → DB 저장까지 거쳐 약 0.1초 내 응답했고, 재요청은 DB 캐시로 즉시 응답했다.
+- **권한 검증**: `PENDING` 역할 사용자는 예측 API에서 `403 prediction_access_denied`로 차단되고, `STAFF`로 승격한 사용자만 정상 호출되는 것을 확인했다.
+
+---
 
 ## 실행 방법
 
