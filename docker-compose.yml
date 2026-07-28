@@ -1,0 +1,70 @@
+services:
+  fastapi:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+        - --port
+      - "8000"
+      - --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - fastapi-venv:/app/.venv
+    environment:
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:-ai_health}
+      DB_USER: ${DB_USER:-ozcoding}
+      DB_PASSWORD: ${DB_PASSWORD:-app-password}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-development-only-change-me}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-strict}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.4
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root-password}
+      MYSQL_DATABASE: ${DB_NAME:-ai_health}
+      MYSQL_USER: ${DB_USER:-ozcoding}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-app-password}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mysqladmin ping -h localhost -u root -p"$${MYSQL_ROOT_PASSWORD}"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  fastapi-venv:
+  mysql-data:
+  redis-data:
