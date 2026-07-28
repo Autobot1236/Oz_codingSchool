@@ -25,8 +25,11 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-development-only-change-me}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       COOKIE_SAMESITE: ${COOKIE_SAMESITE:-strict}
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       mysql:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 
@@ -64,7 +67,24 @@ services:
       retries: 5
     restart: unless-stopped
 
+  ai-worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    volumes:
+      - ./media:/app/media
+      - ai-worker-venv:/app/.venv
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    # 여러 워커를 동시에 띄워 테스트하려면:
+    #   docker compose up -d --build --scale ai-worker=2
+
 volumes:
   fastapi-venv:
+  ai-worker-venv:
   mysql-data:
   redis-data:
