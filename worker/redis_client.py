@@ -16,11 +16,24 @@ _client: redis.Redis | None = None
 
 
 def get_redis_client() -> redis.Redis:
-    """Return the process-wide Redis connection."""
+    """Return the process-wide Redis connection.
+
+    socket_timeout must exceed BLPOP_TIMEOUT_SECONDS. BLPOP asks the *server*
+    to hold the connection open for up to `timeout` seconds before replying
+    with a nil; if the client-side socket timeout is equal to (or shorter
+    than) that value, the client's own read can time out at essentially the
+    same instant the server would have replied, raising
+    redis.exceptions.TimeoutError on almost every idle poll instead of the
+    library's normal "no item" (None) result.
+    """
     global _client
     if _client is None:
         redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-        _client = redis.from_url(redis_url, decode_responses=True)
+        _client = redis.from_url(
+            redis_url,
+            decode_responses=True,
+            socket_timeout=BLPOP_TIMEOUT_SECONDS + 5,
+        )
     return _client
 
 
