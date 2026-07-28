@@ -1,50 +1,65 @@
 services:
   fastapi:
+    image: ah-fastapi:latest
     build:
       context: .
       dockerfile: app/Dockerfile
-    entrypoint: sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
     ports:
-      - "8000:8000"
+      - "${FASTAPI_HOST_PORT:-8010}:8000"
+    environment:
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-development-only-change-me}
     volumes:
-      - ./app:/app
-      - static_volume:/app/static
-      - media_volume:/app/media
+      - .:/app
+      - fastapi_venv:/app/.venv
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/healthcheck || exit 1"]
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthcheck')"
       interval: 5s
       timeout: 5s
-      retries: 3
+      retries: 5
+      start_period: 10s
     depends_on:
       mysql:
         condition: service_healthy
+    restart: unless-stopped
 
   mysql:
     image: mysql:8.0
-    volumes:
-      - mysql_volume:/var/lib/mysql
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
       MYSQL_DATABASE: ${DB_NAME}
       MYSQL_USER: ${DB_USER}
       MYSQL_PASSWORD: ${DB_PASSWORD}
     ports:
-      - "${DB_PORT}:3306"
+      - "${MYSQL_HOST_PORT:-3307}:3306"
+    volumes:
+      - mysql_volume:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost"]
-      timeout: 20s
-      retries: 5
-
-  adminer:
-    image: adminer:5
-    ports:
-      - "8080:8080"
-    depends_on:
-      mysql:
-        condition: service_healthy
-
+      test:
+        - CMD-SHELL
+        - "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} --silent"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
 
 volumes:
+  fastapi_venv:
   mysql_volume:
-  static_volume:
-  media_volume:
