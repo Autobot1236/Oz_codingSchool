@@ -1,0 +1,43 @@
+# Environment and secrets
+.env
+.env.*
+
+# Python environments and caches
+.venv/
+venv/
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Package and tool caches
+.cache/
+pip-wheel-metadata/
+*.egg-info/
+
+# Docker configuration
+**/Dockerfile*
+**/.dockerignore
+docker-compose*.yml
+compose*.yml
+
+# Documentation and tests
+docs/
+README.md
+tests/
+
+# IDE and OS files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+**/.DS_Store
+
+# Version control and local runtime data
+.git/
+.github/
+media/
