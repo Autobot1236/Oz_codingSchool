@@ -18,15 +18,19 @@ dependencies = [
     { name = "asyncmy" },
     { name = "cryptography" },
     { name = "fastapi", extra = ["standard"] },
-    { name = "numpy" },
-    { name = "pillow" },
     { name = "pydantic-settings" },
     { name = "python-jose", extra = ["cryptography"] },
     { name = "redis" },
     { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "uuid6" },
+]
+
+[package.optional-dependencies]
+ai = [
+    { name = "numpy" },
+    { name = "pillow" },
     { name = "torch", version = "2.13.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
     { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'linux'" },
-    { name = "uuid6" },
 ]
 
 [package.metadata]
@@ -36,16 +40,17 @@ requires-dist = [
     { name = "asyncmy", specifier = ">=0.2.11" },
     { name = "cryptography", specifier = ">=46.0.6" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.135.3" },
-    { name = "numpy", specifier = ">=2.0.0" },
-    { name = "pillow", specifier = ">=11.0.0" },
+    { name = "numpy", marker = "extra == 'ai'", specifier = ">=2.0.0" },
+    { name = "pillow", marker = "extra == 'ai'", specifier = ">=11.0.0" },
     { name = "pydantic-settings", specifier = ">=2.13.1" },
     { name = "python-jose", extras = ["cryptography"], specifier = ">=3.5.0" },
     { name = "redis", specifier = ">=8.0.1" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.49" },
-    { name = "torch", marker = "sys_platform != 'linux'", specifier = ">=2.7.0" },
-    { name = "torch", marker = "sys_platform == 'linux'", specifier = ">=2.7.0", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "torch", marker = "sys_platform == 'linux' and extra == 'ai'", specifier = ">=2.7.0", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "torch", marker = "sys_platform != 'linux' and extra == 'ai'", specifier = ">=2.7.0" },
     { name = "uuid6", specifier = ">=2025.0.1" },
 ]
+provides-extras = ["ai"]
 
 [[package]]
 name = "alembic"
